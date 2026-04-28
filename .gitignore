@@ -327,3 +327,6 @@ programs/svs-12/keypair.json
 # External Claude skill submodules
 .claude/skills/ext/
 CLAUDE.local.md
+
+# Squads Guardian vault deployment artifact (devnet-specific)
+.guardian-vaults.json
