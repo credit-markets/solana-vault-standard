@@ -2,47 +2,7 @@ use anchor_lang::prelude::*;
 use spl_transfer_hook_interface::error::TransferHookError;
 
 use crate::error::ComplianceHookError;
-use crate::state::SanctionsList;
-
-/// Mode discriminator stored at mint-config-PDA level.
-///
-/// Plan A delivers `FreelyTransferable`; `Permissioned` is wired in but its
-/// attestation-checking branch is filled in by Task 10. Today the
-/// `Permissioned` arm returns a placeholder error so the mode is callable but
-/// not yet routable.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ComplianceMode {
-    FreelyTransferable,
-    Permissioned,
-}
-
-/// Mint config PDA — bound to a specific Token-2022 mint that uses this hook.
-///
-/// Seeds: `[b"mint_config", mint_pubkey]`
-///
-/// Layout (post-discriminator):
-/// - `mint`         : `Pubkey` (32 bytes)              offset  8..40
-/// - `mode`         : `ComplianceMode` (1 byte)         offset 40..41
-/// - `pool_policy`  : `Option<Pubkey>` (1 + up to 32)   offset 41..74
-///
-/// `pool_policy` reserves the 33-byte max-case so layout is fixed-size; the
-/// `Option<Pubkey>` byte at offset 41 is the discriminator (0 = None,
-/// 1 = Some). Per audit V1.A / P0.B, `pool_policy` lives at byte offset
-/// `8 + 34 = 42` inside the account (Plan A Task 9b consumes that offset).
-#[account]
-pub struct MintConfig {
-    pub mint: Pubkey,
-    pub mode: ComplianceMode,
-    /// Optional pool policy PDA (Permissioned mode); unused in FreelyTransferable.
-    pub pool_policy: Option<Pubkey>,
-}
-
-impl MintConfig {
-    pub const SEED_PREFIX: &'static [u8] = b"mint_config";
-    /// 8 (discriminator) + 32 (mint) + 1 (mode) + 1 (Option tag) + 32 (Pubkey)
-    /// = 74 bytes (max-case `Option<Pubkey>` reserves all 33 fixed bytes).
-    pub const SPACE: usize = 8 + 32 + 1 + 1 + 32;
-}
+use crate::state::{ComplianceMode, MintConfig, SanctionsList};
 
 /// `Execute` accounts: order MUST match the canonical Token-2022 TransferHook
 /// layout — `source_ata`, `mint`, `destination_ata`, `source_owner` — followed
@@ -112,7 +72,8 @@ fn ata_owner(ata: &AccountInfo) -> Result<Pubkey> {
         // directly.
         return Err(ProgramError::from(TransferHookError::IncorrectAccount).into());
     }
-    Ok(Pubkey::try_from(&data[32..64]).unwrap())
+    Ok(Pubkey::try_from(&data[32..64])
+        .map_err(|_| -> Error { ProgramError::from(TransferHookError::IncorrectAccount).into() })?)
 }
 
 pub fn handler(ctx: Context<Execute>) -> Result<()> {
