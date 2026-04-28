@@ -50,7 +50,7 @@ async function deployVault(
   conn: Connection,
   payer: Keypair,
   cfg: VaultConfig,
-): Promise<{ multisigPda: PublicKey; targetThreshold: number; targetMembers: string[] }> {
+): Promise<{ multisigPda: PublicKey; targetThreshold: number; targetMembers: string[]; deploySignature: string }> {
   // Stage 0 of the Day-1 bootstrap (per signer-policy doc):
   //   Deploy at threshold=1 with deployer as the SOLE member. The real signer set
   //   (cfg.members at cfg.threshold) is RECORDED as the target state in
@@ -85,6 +85,7 @@ async function deployVault(
     multisigPda,
     targetThreshold: cfg.threshold,
     targetMembers: cfg.members.map((pk) => pk.toBase58()),
+    deploySignature: sig,
   };
 }
 
@@ -94,13 +95,14 @@ async function main() {
     Uint8Array.from(JSON.parse(fs.readFileSync(process.env.SOLANA_DEPLOYER_KEY!, "utf-8"))),
   );
 
-  const results: Record<string, { multisigPda: string; target_threshold: number; target_members: string[] }> = {};
+  const results: Record<string, { multisigPda: string; target_threshold: number; target_members: string[]; deploy_signature: string }> = {};
   for (const cfg of vaultConfigs) {
     const r = await deployVault(conn, payer, cfg);
     results[cfg.label] = {
       multisigPda: r.multisigPda.toBase58(),
       target_threshold: r.targetThreshold,
       target_members: r.targetMembers,
+      deploy_signature: r.deploySignature,
     };
   }
 

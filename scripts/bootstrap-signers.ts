@@ -117,7 +117,28 @@ async function main() {
   }
 }
 
-function parseArgs(argv: string[]) { /* ...standard arg parsing... */ return { vault: "" as VaultLabel, stage: 0, confirm: false }; }
-function allVaultsAtStage(v: VaultsFile, _stage: number): boolean { /* check across protocol+ops+emergency */ return false; }
+function parseArgs(argv: string[]): { vault: VaultLabel; stage: number; confirm: boolean } {
+  // SCAFFOLD: real CLI parser must be implemented before this script runs.
+  // The shape below matches the spec but the body throws to prevent silent no-ops.
+  // Pattern to follow: see programs/scripts/health-check.ts:25-43 for the
+  // existing flag-parsing convention used elsewhere in this directory.
+  void argv;
+  throw new Error(
+    "bootstrap-signers.ts parseArgs is a scaffold — implement CLI parsing before running. " +
+    "See health-check.ts:25-43 for the existing pattern."
+  );
+}
+
+function allVaultsAtStage(v: VaultsFile, _stage: number): boolean {
+  // SCAFFOLD: must check across protocol + ops + emergency vault entries to
+  // determine if all have reached the given stage. Returning unconditional
+  // false would silently prevent bootstrap_stage advancement; throwing is
+  // the safer scaffold default.
+  void v;
+  throw new Error(
+    "bootstrap-signers.ts allVaultsAtStage is a scaffold — implement per-vault stage tracking before running. " +
+    "Should return true only when all 3 vault entries (protocol, ops, emergency) report the given stage."
+  );
+}
 
 main().catch((e) => { console.error(e); process.exit(1); });
