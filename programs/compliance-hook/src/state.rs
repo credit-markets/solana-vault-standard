@@ -36,3 +36,11 @@ impl SanctionsList {
         self.addresses.contains(addr)
     }
 }
+
+// Re-export `MintConfig` + `ComplianceMode` from the instruction module so
+// downstream code can `use crate::state::MintConfig` regardless of where the
+// struct is physically defined. Per audit V1.C, the canonical home for the
+// type is alongside `Execute` (since the layout and accounts struct are
+// co-evolving), but the rest of the program (and Task 9b's
+// `init_extra_account_meta_list`) imports it from `state`.
+pub use crate::instructions::execute::{ComplianceMode, MintConfig};

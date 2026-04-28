@@ -31,4 +31,13 @@ pub mod compliance_hook {
     ) -> Result<()> {
         instructions::update_sanctions_list::handler(ctx, additions, removals)
     }
+
+    /// Token-2022 TransferHook entry point. Verifies that neither the source
+    /// nor destination ATA owner is on the sanctions list and that no
+    /// `FrozenAccount` PDA exists for either, then branches on the mint's
+    /// `ComplianceMode`. `FreelyTransferable` returns `Ok`; `Permissioned`
+    /// will read attestations + pool policy in Task 10.
+    pub fn execute(ctx: Context<Execute>) -> Result<()> {
+        instructions::execute::handler(ctx)
+    }
 }

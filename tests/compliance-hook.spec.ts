@@ -69,3 +69,42 @@ describe("compliance-hook: update_sanctions_list", () => {
     }
   });
 });
+
+describe("compliance-hook: execute (FreelyTransferable mode)", () => {
+  // Full Token-2022 + transfer-hook test scaffolding (mint with extension,
+  // ATAs, extra-account-meta-list) lands in Task 11. Until then these are
+  // placeholders that document the intended coverage.
+
+  it.skip("transfer between two non-sanctioned wallets succeeds", async () => {
+    // Setup: invoke `execute` with sanctions_list, source ATA, destination
+    // ATA, mint_config in FreelyTransferable mode, and frozen_check PDAs that
+    // do NOT exist for either owner. Neither owner is on the sanctions list.
+    // Expected: instruction returns Ok.
+  });
+
+  it.skip("transfer where destination owner is sanctioned fails", async () => {
+    // Setup: add destination's wallet to sanctions list, then call execute.
+    // Expected: SanctionedAddress (6000) error.
+  });
+
+  it.skip("transfer where source owner is sanctioned fails", async () => {
+    // Mirror of the above for source owner.
+    // Expected: SanctionedAddress (6000) error.
+  });
+
+  it.skip("transfer where source owner has FrozenAccount PDA fails", async () => {
+    // Setup: create a FrozenAccount PDA at [b"frozen", source_owner].
+    // Expected: AccountFrozen (6001) error.
+  });
+
+  it.skip("transfer where destination owner has FrozenAccount PDA fails", async () => {
+    // Mirror for destination.
+    // Expected: AccountFrozen (6001) error.
+  });
+
+  it.skip("Permissioned-mode mint rejects until Task 10 lands", async () => {
+    // Setup: MintConfig with mode = Permissioned.
+    // Expected: TransferHookError::ProgramCalledOutsideOfTransfer (placeholder
+    // until attestation logic is wired).
+  });
+});
