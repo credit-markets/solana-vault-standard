@@ -18,6 +18,7 @@ mock_oracle = "Heezh11y1FJPvrUjKetGsDJTFFNdHqXPz9bFsUiEJxdh"
 mock_sas = "GTTMWDHTZibyEpqNRr33RnBhgms262U6qHaGrjoHqEXg"
 svs_12 = "EPwH58e5V1UXYkkD8JZ4bq7Wr2iRiC9fLj1S6BRRz2R"
 compliance_hook = "6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P"
+nav_oracle = "7564bvScA3FjQ9w5nCx44EK4JkgitzZ3UstX1e4eKks7"
 
 [programs.localnet]
 svs_8 = "HnZ9N8Y1v6jMhwDqo4Y76GfqjRArdinadgK67yLVFZbe"
@@ -35,6 +36,7 @@ mock_oracle = "Heezh11y1FJPvrUjKetGsDJTFFNdHqXPz9bFsUiEJxdh"
 mock_sas = "GTTMWDHTZibyEpqNRr33RnBhgms262U6qHaGrjoHqEXg"
 svs_12 = "EPwH58e5V1UXYkkD8JZ4bq7Wr2iRiC9fLj1S6BRRz2R"
 compliance_hook = "6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P"
+nav_oracle = "7564bvScA3FjQ9w5nCx44EK4JkgitzZ3UstX1e4eKks7"
 
 
 [registry]
