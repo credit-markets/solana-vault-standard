@@ -131,23 +131,22 @@ pub fn handler(ctx: Context<Execute>) -> Result<()> {
         ComplianceMode::Permissioned => {
             // Token-2022 runtime resolves the EAML's 7 Permissioned extras and
             // populates the three `Option<>` fields below. A `None` here means
-            // the caller invoked the hook with the wrong account count —
-            // surface that as `IncorrectAccount` rather than letting it
-            // silently no-op.
+            // the EAML was misconfigured (wrong account count for the mode) —
+            // surface that as `AttestationNotFound` (6002) so the on-chain emit
+            // matches both the test scaffold expectations and the Helius
+            // webhook parser, which keys on the 6000-series ComplianceHookError
+            // codes. (`TransferHookError::IncorrectAccount` is in a different
+            // namespace and would not classify correctly downstream.)
             let src_att = ctx
                 .accounts
                 .source_attestation
                 .as_ref()
-                .ok_or_else(|| -> Error {
-                    ProgramError::from(TransferHookError::IncorrectAccount).into()
-                })?;
+                .ok_or(ComplianceHookError::AttestationNotFound)?;
             let dst_att = ctx
                 .accounts
                 .destination_attestation
                 .as_ref()
-                .ok_or_else(|| -> Error {
-                    ProgramError::from(TransferHookError::IncorrectAccount).into()
-                })?;
+                .ok_or(ComplianceHookError::AttestationNotFound)?;
 
             check_attestation(&src_att.to_account_info(), "source")?;
             check_attestation(&dst_att.to_account_info(), "destination")?;
@@ -194,8 +193,8 @@ fn check_attestation(att: &AccountInfo, label: &'static str) -> Result<()> {
     // `try_into().unwrap()` is sound here: the slice length is fixed by the
     // const-range above, and we've already bounds-checked `data.len() >= 129`
     // (= 8 disc + 121 payload), so `payload[75..83]` is always 8 bytes.
-    let expires_at = i64::from_le_bytes(payload[75..83].try_into().unwrap());
-    let revoked = payload[83] != 0;
+    let expires_at = i64::from_le_bytes(payload[75..83].try_into().unwrap()); // expires_at: i64
+    let revoked = payload[83] != 0; // revoked: bool
 
     require!(!revoked, ComplianceHookError::AttestationRevoked);
 
