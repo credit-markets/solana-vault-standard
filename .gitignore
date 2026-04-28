@@ -54,7 +54,6 @@ pnpm-lock.yaml
 # Rust/Cargo
 #############
 target/
-Cargo.lock
 **/*.rs.bk
 *.pdb
 
