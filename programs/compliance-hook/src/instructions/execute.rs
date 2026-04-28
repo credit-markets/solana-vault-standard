@@ -9,6 +9,16 @@ use crate::state::{ComplianceMode, MintConfig, SanctionsList};
 /// by the compliance-hook extras. The extra-account-meta-list bound by Task 9b
 /// derives the extra account seeds via `Seed::AccountKey { index: N }` against
 /// these positions, so the order here is load-bearing.
+///
+/// Permissioned-mode extras (`source_attestation`, `destination_attestation`,
+/// `pool_policy`) are declared as `Option<UncheckedAccount>` so a single
+/// `Execute` struct serves both modes. The Token-2022 runtime resolves the
+/// EAML at the canonical seed (`b"extra-account-metas"`), and that PDA holds
+/// 4 entries for `FreelyTransferable` and 7 for `Permissioned` (Task 9b).
+/// Anchor 0.31's `Option<T>` account binding accepts a missing tail of
+/// accounts as `None`, which matches the runtime's truncated invocation in
+/// `FreelyTransferable` mode. The handler branches on `mint_config.mode` and
+/// only touches the `Some` arms when `Permissioned`.
 #[derive(Accounts)]
 pub struct Execute<'info> {
     /// CHECK: source ATA — owner read from offset 32..64 of account data.
@@ -51,8 +61,28 @@ pub struct Execute<'info> {
     /// CHECK: optional `FrozenAccount` PDA for destination. Same semantics.
     /// Index 7.
     pub destination_frozen_check: UncheckedAccount<'info>,
-    // Permissioned-mode adds: source_attestation, destination_attestation,
-    // pool_policy. Wired in Task 10.
+
+    /// CHECK: SVS-11 Attestation PDA for the source-ATA owner. Required only
+    /// when `mint_config.mode == Permissioned`; the EAML omits this entry in
+    /// `FreelyTransferable` mode, so the runtime passes `None`. The handler
+    /// requires `Some` only on the Permissioned branch.
+    /// Index 8 (Permissioned only).
+    pub source_attestation: Option<UncheckedAccount<'info>>,
+
+    /// CHECK: SVS-11 Attestation PDA for the destination-ATA owner. Same
+    /// semantics as `source_attestation`.
+    /// Index 9 (Permissioned only).
+    pub destination_attestation: Option<UncheckedAccount<'info>>,
+
+    /// CHECK: pool-policy PDA referenced by `mint_config.pool_policy`. Plan A
+    /// P0 does NOT enforce any threshold (jurisdiction / investor_class /
+    /// kyc_risk_tier) against this account — the Permissioned arm only
+    /// validates that both attestations exist + are valid. The pool-policy
+    /// extra is wired through Task 9b for forward compatibility with the
+    /// P1 enforcement layer that consumes it. The handler currently leaves
+    /// this account untouched.
+    /// Index 10 (Permissioned only).
+    pub pool_policy: Option<UncheckedAccount<'info>>,
 }
 
 /// Read the owner pubkey from a Token-2022 ATA's raw account data.
@@ -99,11 +129,79 @@ pub fn handler(ctx: Context<Execute>) -> Result<()> {
     match ctx.accounts.mint_config.mode {
         ComplianceMode::FreelyTransferable => Ok(()),
         ComplianceMode::Permissioned => {
-            // Permissioned check (attestation reads + pool policy) lands in
-            // Task 10. Until then, return the interface's "outside transfer"
-            // sentinel so the mode is wired but rejects every call.
-            // Bridge through `ProgramError` (see note in `ata_owner`).
-            Err(ProgramError::from(TransferHookError::ProgramCalledOutsideOfTransfer).into())
+            // Token-2022 runtime resolves the EAML's 7 Permissioned extras and
+            // populates the three `Option<>` fields below. A `None` here means
+            // the caller invoked the hook with the wrong account count —
+            // surface that as `IncorrectAccount` rather than letting it
+            // silently no-op.
+            let src_att = ctx
+                .accounts
+                .source_attestation
+                .as_ref()
+                .ok_or_else(|| -> Error {
+                    ProgramError::from(TransferHookError::IncorrectAccount).into()
+                })?;
+            let dst_att = ctx
+                .accounts
+                .destination_attestation
+                .as_ref()
+                .ok_or_else(|| -> Error {
+                    ProgramError::from(TransferHookError::IncorrectAccount).into()
+                })?;
+
+            check_attestation(&src_att.to_account_info(), "source")?;
+            check_attestation(&dst_att.to_account_info(), "destination")?;
+
+            // P1: enforce pool_policy thresholds (jurisdiction / investor_class /
+            // kyc_risk_tier) against the loaded attestations. P0 leaves
+            // `pool_policy` wired but unread — the EAML still resolves it so
+            // a future upgrade can flip the enforcement on without re-init.
+            Ok(())
         }
     }
+}
+
+/// Reads an SVS-11 Attestation account (raw, without anchor zero-copy) and
+/// validates it is present, non-revoked, and non-expired.
+///
+/// Layout is fixed by SVS-11's `Attestation` struct (see
+/// `programs/svs-11/src/attestation.rs`). We rely on field offsets — DO NOT
+/// desync this from svs-11 state without updating both sides. Offset map
+/// (after the 8-byte Anchor discriminator), CORRECTED post-Task 8:
+///   0..32    subject (Pubkey)
+///   32..64   issuer (Pubkey)
+///   64       attestation_type (u8)
+///   65..67   country_code ([u8; 2])
+///   67..75   issued_at (i64)
+///   75..83   expires_at (i64)         <-- was wrongly listed at 64..72 in earlier draft
+///   83       revoked (bool, 1 byte)   <-- was wrongly listed at 72 in earlier draft
+///   84       bump (u8)
+///   85..117  _reserved ([u8; 32])
+///   117..119 jurisdiction ([u8; 2])   <-- new field, Task 8
+///   119      investor_class (u8)      <-- new field, Task 8
+///   120      kyc_risk_tier (u8)       <-- new field, Task 8
+/// Total: 121 bytes after discriminator (LEN = 8 + 121 = 129).
+fn check_attestation(att: &AccountInfo, label: &'static str) -> Result<()> {
+    require!(
+        att.lamports() > 0 && att.data_len() > 0,
+        ComplianceHookError::AttestationNotFound
+    );
+
+    let data = att.try_borrow_data()?;
+    require!(data.len() >= 129, ComplianceHookError::AttestationNotFound);
+
+    let payload = &data[8..];
+    // `try_into().unwrap()` is sound here: the slice length is fixed by the
+    // const-range above, and we've already bounds-checked `data.len() >= 129`
+    // (= 8 disc + 121 payload), so `payload[75..83]` is always 8 bytes.
+    let expires_at = i64::from_le_bytes(payload[75..83].try_into().unwrap());
+    let revoked = payload[83] != 0;
+
+    require!(!revoked, ComplianceHookError::AttestationRevoked);
+
+    let now = Clock::get()?.unix_timestamp;
+    require!(now < expires_at, ComplianceHookError::AttestationExpired);
+
+    msg!("attestation OK ({})", label);
+    Ok(())
 }

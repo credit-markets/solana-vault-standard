@@ -102,10 +102,51 @@ describe("compliance-hook: execute (FreelyTransferable mode)", () => {
     // Expected: AccountFrozen (6001) error.
   });
 
-  it.skip("Permissioned-mode mint rejects until Task 10 lands", async () => {
-    // Setup: MintConfig with mode = Permissioned.
-    // Expected: TransferHookError::ProgramCalledOutsideOfTransfer (placeholder
-    // until attestation logic is wired).
+});
+
+describe("compliance-hook: execute (Permissioned mode)", () => {
+  // Full Token-2022 + transfer-hook test scaffolding lands in Task 11. Until
+  // then these are placeholders documenting the intended Permissioned-mode
+  // coverage. Each case assumes:
+  //   - a Token-2022 mint with TransferHook extension pointing at
+  //     compliance-hook,
+  //   - a `MintConfig` PDA with `mode = Permissioned`,
+  //   - an `ExtraAccountMetaList` PDA initialized with the 7 Permissioned
+  //     extras (Task 9b), and
+  //   - SVS-11 Attestation PDAs (or the absence thereof) for the relevant
+  //     wallets, with the offset map locked by Task 8.
+
+  it.skip("transfer succeeds when both wallets have valid attestations", async () => {
+    // Setup: source + destination owners each have an SVS-11 Attestation
+    // PDA with `revoked = false` and `expires_at > now`. Sanctions list is
+    // empty; no FrozenAccount PDAs.
+    // Expected: instruction returns Ok and `attestation OK (...)` shows up
+    // in the program logs twice.
+  });
+
+  it.skip("transfer fails when source attestation is missing", async () => {
+    // Setup: destination has a valid attestation; source PDA does not exist
+    // (lamports == 0, data_len == 0).
+    // Expected: AttestationNotFound (6002) error.
+  });
+
+  it.skip("transfer fails when destination attestation is missing", async () => {
+    // Mirror of the source-missing case for the destination wallet.
+    // Expected: AttestationNotFound (6002) error.
+  });
+
+  it.skip("transfer fails when destination attestation is revoked", async () => {
+    // Setup: destination Attestation written with `revoked = true` (byte 83
+    // of payload after the 8-byte discriminator, per the layout locked in
+    // Task 8). Source attestation is valid.
+    // Expected: AttestationRevoked (6003) error.
+  });
+
+  it.skip("transfer fails when destination attestation is expired", async () => {
+    // Setup: destination Attestation written with `expires_at` set to a
+    // unix timestamp in the past (bytes 75..83 of payload, little-endian
+    // i64). Source attestation is valid.
+    // Expected: AttestationExpired (6004) error.
   });
 });
 
