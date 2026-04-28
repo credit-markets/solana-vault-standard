@@ -21,4 +21,12 @@ pub mod nav_oracle {
     pub fn initialize(ctx: Context<InitializeNavAccount>) -> Result<()> {
         instructions::initialize::handler(ctx)
     }
+
+    /// Publisher-only NAV update. Verifies a preceding ed25519 verify ix
+    /// over the canonical 133-byte signing payload, enforces strictly
+    /// increasing sequence, bounds timestamp to now+60s, and checks
+    /// nav_net = nav_gross × (1 − ter − loss) within 1bps tolerance.
+    pub fn update(ctx: Context<UpdateNav>, args: UpdateArgs) -> Result<()> {
+        instructions::update::handler(ctx, args)
+    }
 }
