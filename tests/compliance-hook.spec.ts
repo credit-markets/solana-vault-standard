@@ -108,3 +108,47 @@ describe("compliance-hook: execute (FreelyTransferable mode)", () => {
     // until attestation logic is wired).
   });
 });
+
+describe("compliance-hook: initialize_extra_account_meta_list", () => {
+  // Token-2022 TransferHook spec literal — note the HYPHEN, not underscore.
+  // This is the seed the runtime looks up to resolve extra accounts when
+  // executing a transfer through any mint bound to compliance-hook. Full
+  // mint-with-extension scaffolding (init the mint, derive ATAs, etc.)
+  // lands in Task 11; until then these are placeholders documenting intent.
+  const EXTRA_ACCOUNT_METAS_SEED = "extra-account-metas";
+
+  it.skip("creates the ExtraAccountMetaList PDA at the canonical seed", async () => {
+    // Setup:
+    //   - Create a Token-2022 mint with the TransferHook extension
+    //     pointing at the compliance-hook program ID.
+    //   - Create the per-mint MintConfig PDA at [b"mint_config", mint]
+    //     with mode = FreelyTransferable.
+    //   - Call initialize_extra_account_meta_list with that mint.
+    // Expected:
+    //   - PDA derived from [EXTRA_ACCOUNT_METAS_SEED, mint.toBuffer()]
+    //     under compliance-hook program ID exists.
+    //   - Account data deserializes via spl_tlv_account_resolution::state
+    //     ::ExtraAccountMetaList.
+    //   - List has 4 entries for FreelyTransferable mode (mint_config,
+    //     sanctions_list, source_frozen_check, destination_frozen_check),
+    //     or 7 for Permissioned (adds source_attestation,
+    //     destination_attestation, pool_policy).
+    void EXTRA_ACCOUNT_METAS_SEED;
+  });
+
+  it.skip("rejects re-initialization (already_in_use)", async () => {
+    // Setup: invoke initialize_extra_account_meta_list twice on the same
+    // mint without closing the PDA in between.
+    // Expected: second call fails with the standard Anchor "account
+    // already in use" / SystemProgram::CreateAccount-failure error.
+  });
+
+  it.skip("execute resolves all extra accounts via the PDA", async () => {
+    // Setup: after initialize_extra_account_meta_list lands, perform a
+    // real Token-2022 transfer through a hook-bound mint. The runtime
+    // must resolve every entry in the PDA and pass them to execute in
+    // the documented order.
+    // Expected: transfer succeeds (assuming sanctions/frozen checks
+    // pass).
+  });
+});

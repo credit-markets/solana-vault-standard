@@ -21,6 +21,18 @@ pub mod compliance_hook {
         instructions::initialize_sanctions_list::handler(ctx)
     }
 
+    /// Initialize the per-mint `ExtraAccountMetaList` PDA at
+    /// `[b"extra-account-metas", mint]` — the Token-2022 TransferHook
+    /// spec requires this PDA so the runtime can resolve the extra
+    /// accounts `execute` consumes beyond the canonical 4. Sized for
+    /// `Permissioned` mode (7 extras) so a future mode switch does not
+    /// require realloc.
+    pub fn initialize_extra_account_meta_list(
+        ctx: Context<InitializeExtraAccountMetaList>,
+    ) -> Result<()> {
+        instructions::initialize_extra_account_meta_list::handler(ctx)
+    }
+
     /// Authority-gated mutation of the sanctions list. Applies `removals`
     /// first, then `additions` (skipping already-present entries), bumps
     /// the version counter, and emits `SanctionsListUpdated`.
