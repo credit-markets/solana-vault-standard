@@ -292,6 +292,7 @@ export class CreditVault {
     navOracle: PublicKey,
     attestation: PublicKey,
     frozenCheck?: PublicKey,
+    navAccount?: PublicKey,
   ): Promise<string> {
     const [investmentRequest] = getInvestmentRequestAddress(
       this.program.programId,
@@ -307,6 +308,11 @@ export class CreditVault {
         investmentRequest,
         investor,
         navOracle,
+        // Plan B Task 6: nav_account is the NavAccount PDA from the
+        // nav-oracle program. Read only when CreditVault.oracle_source == 1.
+        // For oracle_source == 0 (mock-oracle revert mode) any account
+        // works — we default to the program ID as a non-readable filler.
+        navAccount: navAccount ?? this.program.programId,
         attestation,
         frozenCheck: frozenCheck ?? this.program.programId,
         clock: SYSVAR_CLOCK_PUBKEY,
@@ -427,6 +433,7 @@ export class CreditVault {
     navOracle: PublicKey,
     attestation: PublicKey,
     frozenCheck?: PublicKey,
+    navAccount?: PublicKey,
   ): Promise<string> {
     const [redemptionRequest] = getRedemptionRequestAddress(
       this.program.programId,
@@ -452,6 +459,8 @@ export class CreditVault {
         assetMint: this.assetMint,
         claimableTokens,
         navOracle,
+        // Plan B Task 6: nav_account — see approveDeposit for full context.
+        navAccount: navAccount ?? this.program.programId,
         attestation,
         frozenCheck: frozenCheck ?? this.program.programId,
         assetTokenProgram: this.assetTokenProgram,

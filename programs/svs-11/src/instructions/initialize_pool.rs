@@ -247,6 +247,21 @@ pub fn handler(
     vault.required_attestation_type = 0;
     vault._reserved = [0u8; 23];
 
+    // Plan B Task 6 / audit P0.C — NavOracle integration defaults.
+    //
+    // `oracle_source` defaults to ORACLE_SOURCE_MOCK (0) so newly-initialized
+    // pools start on the legacy mock_oracle path that existing fixtures and
+    // pre-Plan-B tooling already exercise. The bundled SVS-11 upgrade in
+    // Plan C Task 14 flips existing pools to ORACLE_SOURCE_NAV_ORACLE (1)
+    // via `set_oracle_source` after the realloc + smoke-test. Operators that
+    // want Plan B from inception can call `set_oracle_source(1)` immediately
+    // after this instruction completes.
+    vault.last_seen_nav_sequence = 0;
+    vault.last_seen_nav_price = 0;
+    vault.max_nav_staleness_secs = crate::constants::DEFAULT_MAX_NAV_STALENESS_SECS;
+    vault.oracle_source = crate::constants::ORACLE_SOURCE_MOCK;
+    vault._padding_oracle = [0u8; 7];
+
     emit!(VaultInitialized {
         vault: vault.key(),
         authority: vault.authority,

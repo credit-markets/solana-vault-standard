@@ -55,6 +55,59 @@ pub struct CreditVault {
     /// (e.g. accredited investor) when the attester issues multiple types.
     pub required_attestation_type: u8,
     pub _reserved: [u8; 23],
+
+    // =========================================================================
+    // Plan B Task 6 / audit P0.C — NavOracle integration fields (+32 bytes)
+    // =========================================================================
+    //
+    // These four fields (plus 7 bytes of padding) extend `CreditVault` so
+    // SVS-11 can read the canonical nav-oracle program (Plan B) instead of
+    // the legacy mock_oracle, while keeping the mock_oracle path reachable
+    // via `oracle_source = 0` as an emergency-revert safety hatch (P0.G).
+    //
+    // Realloc forward-reference: the +32 bytes break deserialization of
+    // CreditVault accounts created before this upgrade. Plan C Task 14
+    // Step 1b ships `realloc_credit_vault_for_oracle_v2` to migrate all
+    // existing PDAs on devnet (zero-init = sequence 0, price 0, staleness
+    // 45d, source 0).
+    /// Last `NavAccount.sequence` the vault has consumed. Updated atomically by
+    /// approve_deposit + approve_redeem after a successful NavOracle read.
+    /// 0 on initialize_pool means "no sequence consumed yet".
+    pub last_seen_nav_sequence: u64,
+
+    /// Last `NavAccount.nav_net` the vault read. Used by the deviation guard so
+    /// we don't accept a NAV that jumps more than `max_deviation_bps` from the
+    /// prior reading. 0 on initialize_pool — first NavOracle read accepts any
+    /// value and bootstraps the deviation baseline.
+    pub last_seen_nav_price: u64,
+
+    /// Per-pool maximum NAV staleness (seconds). Default 45 days =
+    /// 3,888,000 sec (`DEFAULT_MAX_NAV_STALENESS_SECS`). NAV reads older
+    /// than this trip `OracleStale` and block approve_deposit/approve_redeem.
+    pub max_nav_staleness_secs: i64,
+
+    /// Oracle source selector (P0.G — emergency revert path).
+    ///   0 = mock_oracle (legacy mock_oracle program; pre-Plan-B baseline)
+    ///   1 = nav_oracle  (Plan B real oracle; default after bundled upgrade)
+    ///   2..255 = reserved → `OracleSourceInvalid`
+    ///
+    /// If a NavOracle bug is discovered post-deploy, the Protocol Guardian
+    /// can flip this back to 0 via `set_oracle_source` (Plan C Task 14 ships
+    /// the instruction) WITHOUT redeploying SVS-11. Each flip is a one-tx
+    /// Squads-signed proposal — reachable in minutes vs. days for a full
+    /// upgrade.
+    ///
+    /// Default at `initialize_pool`: 0 (legacy mock_oracle). The bundled
+    /// SVS-11 upgrade (Plan C Task 14) flips existing pools to 1 via
+    /// `set_oracle_source` after the realloc + smoke-test. New pools that
+    /// want Plan B from inception should call `set_oracle_source(1)`
+    /// immediately after `initialize_pool`.
+    pub oracle_source: u8,
+
+    /// Padding so the SPACE bump is a clean multiple of 8 (alignment friendliness).
+    /// Total bump for the four fields above + this padding is exactly
+    /// `8 + 8 + 8 + 1 + 7 = 32` bytes.
+    pub _padding_oracle: [u8; 7],
 }
 
 impl CreditVault {
@@ -84,7 +137,16 @@ impl CreditVault {
         32 +  // pending_authority
         8 +   // total_pending_redeems
         1 +   // required_attestation_type
-        23; // _reserved
+        23 +  // _reserved
+        // ---- Plan B Task 6 / audit P0.C: NavOracle integration (+32 bytes) ----
+        8 +   // last_seen_nav_sequence
+        8 +   // last_seen_nav_price
+        8 +   // max_nav_staleness_secs
+        1 +   // oracle_source
+        7;    // _padding_oracle
+
+    /// Audit-friendly alias matching the spec language. Identical to `LEN`.
+    pub const SPACE: usize = Self::LEN;
 
     pub const SEED_PREFIX: &'static [u8] = VAULT_SEED;
 }
