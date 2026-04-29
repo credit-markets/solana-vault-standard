@@ -1,10 +1,12 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::program::invoke_signed;
+use anchor_lang::solana_program::program::{invoke, invoke_signed};
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_2022::{
         spl_token_2022::{
-            extension::ExtensionType,
+            extension::{
+                transfer_hook::instruction::initialize as initialize_transfer_hook, ExtensionType,
+            },
             instruction::{initialize_account3, initialize_mint2},
         },
         Token2022,
@@ -13,7 +15,8 @@ use anchor_spl::{
 };
 
 use crate::constants::{
-    MAX_DECIMALS, REDEMPTION_ESCROW_SEED, SHARES_DECIMALS, SHARES_MINT_SEED, VAULT_SEED,
+    COMPLIANCE_HOOK_PROGRAM_ID, MAX_DECIMALS, REDEMPTION_ESCROW_SEED, SHARES_DECIMALS,
+    SHARES_MINT_SEED, VAULT_SEED,
 };
 use crate::error::VaultError;
 use crate::events::VaultInitialized;
@@ -38,7 +41,10 @@ pub struct InitializePool<'info> {
 
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
 
-    /// CHECK: Shares mint initialized via CPI in handler
+    /// CHECK: Shares mint (cPOOL) initialized via CPI in handler. Plan C
+    /// Task 3 Step 3b binds Token-2022 TransferHook extension pointing at
+    /// COMPLIANCE_HOOK_PROGRAM_ID before mint init so all shares-mint
+    /// transfers route through the compliance-hook program.
     #[account(
         mut,
         seeds = [SHARES_MINT_SEED, vault.key().as_ref()],
@@ -120,12 +126,35 @@ pub fn handler(
     let shares_mint_bump = ctx.bumps.shares_mint;
     let redemption_escrow_bump = ctx.bumps.redemption_escrow;
 
-    let mint_size = ExtensionType::try_calculate_account_len::<spl_token_2022::state::Mint>(&[])
-        .map_err(|_| VaultError::MathOverflow)?;
+    // Plan C Task 3 / Step 3b — cPOOL mint MUST allocate space for the
+    // TransferHook extension. Pass `&[ExtensionType::TransferHook]` so the
+    // mint account is large enough for both the base Mint state AND the
+    // hook extension TLV. Without the extension in this calc, the mint
+    // would later fail to add the extension during initialize_transfer_hook.
+    let mint_size = ExtensionType::try_calculate_account_len::<spl_token_2022::state::Mint>(
+        &[ExtensionType::TransferHook],
+    )
+    .map_err(|_| VaultError::MathOverflow)?;
 
+    // Plan C Task 3 / Step 3b — Token-2022 requires the redemption_escrow
+    // account to be sized for `TransferHookAccount` because its mint
+    // (cPOOL shares_mint) carries the `TransferHook` extension. The
+    // SPL-Token-2022 spec maps every mint extension to an
+    // `Initialize{Account,Mint}` requirement; for TransferHook the
+    // companion is `TransferHookAccount` (a 1-byte transferring flag).
+    // Without sizing for it, `initialize_account3` on the escrow returns
+    // `InvalidAccountData` (the runtime checks the account length matches
+    // the required-init-account-extensions sum).
+    //
+    // Note: `initialize_transfer_hook_account` itself is NOT a separate
+    // ix — Token-2022 implicitly initializes the per-account TransferHook
+    // state inside `initialize_account3` when the underlying mint has the
+    // extension. We just need to allocate the right number of bytes.
     let token_account_size =
-        ExtensionType::try_calculate_account_len::<spl_token_2022::state::Account>(&[])
-            .map_err(|_| VaultError::MathOverflow)?;
+        ExtensionType::try_calculate_account_len::<spl_token_2022::state::Account>(&[
+            ExtensionType::TransferHookAccount,
+        ])
+        .map_err(|_| VaultError::MathOverflow)?;
 
     let rent = &ctx.accounts.rent;
     let mint_lamports = rent.minimum_balance(mint_size);
@@ -155,7 +184,7 @@ pub fn handler(
         &redemption_escrow_bump_bytes,
     ];
 
-    // Create shares mint account
+    // Create shares mint account (sized for base mint + TransferHook ext).
     invoke_signed(
         &anchor_lang::solana_program::system_instruction::create_account(
             &ctx.accounts.authority.key(),
@@ -172,7 +201,48 @@ pub fn handler(
         &[shares_mint_seeds],
     )?;
 
-    // Initialize shares mint (vault PDA is mint authority)
+    // Plan C Task 3 / Step 3b — bind the TransferHook extension BEFORE
+    // initializing the mint. Token-2022 requires extension init in this
+    // order: create account → init extensions → init base mint state.
+    //
+    // The hook authority is set to the pool admin (`authority`) for P0 so
+    // initial-deploy hot-fix flexibility is preserved. Plan A Task 14
+    // rotates this authority to the Ops Guardian Squads vault as part of
+    // the bundled SVS-11 upgrade roll-forward.
+    //
+    // CROSS-PLAN INVARIANT (V2.3 audit closure): the cPOOL mint now points
+    // at COMPLIANCE_HOOK_PROGRAM_ID, but the dependent PDAs that
+    // compliance-hook expects (per-mint `MintConfig` and per-mint
+    // `ExtraAccountMetaList`) are NOT initialized here. They MUST be
+    // initialized in a follow-up tx by the deployment runbook (Plan C
+    // Task 14 Step 8) — the runbook calls compliance-hook directly so
+    // signer-privilege escalation and PDA-derivation-program-mismatch
+    // problems do not arise.
+    //
+    // ARCHITECTURE NOTE: Earlier drafts of Step 3b put MintConfig + EAML
+    // initialization inline here via either CPI to compliance-hook or
+    // direct system_program::create_account calls from svs-11. Both fail:
+    //   - CPI into a handler that uses Anchor `init` on a cross-program
+    //     PDA triggers "signer privilege escalated" because the PDA must
+    //     be marked signer in the inner ix accounts list, but svs-11
+    //     can't sign for it (different program ID).
+    //   - Direct create_account from svs-11 with a PDA owned by
+    //     compliance-hook fails because invoke_signed seeds derive against
+    //     svs-11's program ID, not the owning program's.
+    // Compliance-hook's own ix is the only path. Plan A Task 9b's runtime
+    // guard — "fail loud if init_extra_account_meta_list isn't called for
+    // cPOOL" — catches the case where the runbook step is skipped.
+    invoke(
+        &initialize_transfer_hook(
+            &ctx.accounts.token_2022_program.key(),
+            &ctx.accounts.shares_mint.key(),
+            Some(ctx.accounts.authority.key()),
+            Some(COMPLIANCE_HOOK_PROGRAM_ID),
+        )?,
+        &[ctx.accounts.shares_mint.to_account_info()],
+    )?;
+
+    // Initialize shares mint (vault PDA is mint authority).
     invoke_signed(
         &initialize_mint2(
             &ctx.accounts.token_2022_program.key(),
@@ -261,6 +331,14 @@ pub fn handler(
     vault.max_nav_staleness_secs = crate::constants::DEFAULT_MAX_NAV_STALENESS_SECS;
     vault.oracle_source = crate::constants::ORACLE_SOURCE_MOCK;
     vault._padding_oracle = [0u8; 7];
+
+    msg!(
+        "initialize_pool COMPLETE | shares_mint={} hook={} | NEXT STEP (deployment runbook): \
+         init MintConfig + EAML + infrastructure attestations via compliance-hook + mock-sas \
+         direct txs (Plan C Task 3 Step 3b architecture handoff)",
+        ctx.accounts.shares_mint.key(),
+        COMPLIANCE_HOOK_PROGRAM_ID,
+    );
 
     emit!(VaultInitialized {
         vault: vault.key(),

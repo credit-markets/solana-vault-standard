@@ -237,7 +237,10 @@ export async function createVaultContext(
     })
     .rpc();
 
-  // Initialize vault
+  // Initialize vault. Plan C Task 3 / Step 3b: cPOOL mint TransferHook
+  // extension is bound to compliance-hook in this tx; compliance-hook PDA
+  // setup (MintConfig + EAML + infra attestations) is a separate
+  // follow-up tx in the deployment runbook (Plan C Task 14 Step 8).
   await program.methods
     .initializePool(vaultId, new BN(1_000_000), new BN(3600))
     .accountsPartial({

@@ -35,3 +35,54 @@ pub const NAV_ORACLE_PROGRAM_ID: Pubkey =
 /// CreditVault.oracle_source values (P0.G emergency-revert toggle).
 pub const ORACLE_SOURCE_MOCK: u8 = 0; // legacy mock_oracle path
 pub const ORACLE_SOURCE_NAV_ORACLE: u8 = 1; // Plan B canonical path
+
+// =============================================================================
+// Plan C Task 3 / Step 3b — ComplianceHook + MockSas integration constants
+// =============================================================================
+//
+// These constants are consumed by `initialize_pool` to:
+//   - bind the cPOOL Token-2022 mint's TransferHook extension to
+//     COMPLIANCE_HOOK_PROGRAM_ID;
+//   - derive the per-mint MintConfig PDA owned by compliance-hook;
+//   - CPI into compliance-hook's `initialize_extra_account_meta_list`
+//     (Plan A Task 9b);
+//   - CPI into mock-sas's `create_attestation_with_metadata` (Plan A Task 8)
+//     for the wrapper / vault / pool-admin infrastructure attestations.
+//
+// The values must stay in sync with `programs/compliance-hook/src/lib.rs`
+// and `programs/mock-sas/src/lib.rs` declare_id! lines.
+
+/// Plan A Task 4 ComplianceHook program ID. cPOOL TransferHook extension
+/// authority points here so all Token-2022 transfers route through the
+/// hook for sanctions / frozen / Permissioned attestation enforcement.
+pub const COMPLIANCE_HOOK_PROGRAM_ID: Pubkey =
+    anchor_lang::solana_program::pubkey!("6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P");
+
+/// Mock-SAS (Solana Attestation Service mock) program ID. Plan A Task 8
+/// extended `create_attestation_with_metadata` with jurisdiction +
+/// investor_class + kyc_risk_tier fields. We CPI into it from
+/// `initialize_pool` for the wrapper / vault / pool-admin infrastructure
+/// attestations the Permissioned hook check requires.
+pub const MOCK_SAS_PROGRAM_ID: Pubkey =
+    anchor_lang::solana_program::pubkey!("GTTMWDHTZibyEpqNRr33RnBhgms262U6qHaGrjoHqEXg");
+
+/// Seed for compliance-hook's per-mint `MintConfig` PDA. Mirrors
+/// `compliance_hook::state::MintConfig::SEED_PREFIX`.
+pub const MINT_CONFIG_SEED: &[u8] = b"mint_config";
+
+/// Seed for compliance-hook's per-mint `ExtraAccountMetaList` PDA. Note the
+/// HYPHEN — the Token-2022 runtime spec is fixed on this exact literal.
+/// Mirrors `compliance_hook::state::EXTRA_ACCOUNT_METAS_SEED`.
+pub const EXTRA_ACCOUNT_METAS_SEED: &[u8] = b"extra-account-metas";
+
+/// Seed for mock-sas's per-subject `Attestation` PDA. Mirrors the literal
+/// hard-coded in `mock_sas::CreateAttestation`. Used by SVS-11 attestation
+/// validation + Plan C Task 3 infrastructure-attestation creation.
+pub const ATTESTATION_SEED: &[u8] = b"attestation";
+
+/// `attestation_type` discriminator written to mock-sas attestations
+/// created during `initialize_pool`. Plan A Task 8's metadata extension
+/// keeps `0` reserved for the infrastructure tier (no policy enforcement;
+/// the ComplianceHook treats zero metadata as wildcards in Permissioned
+/// mode). Investor-tier attestations issued elsewhere use `> 0`.
+pub const INFRASTRUCTURE_ATTESTATION_TYPE: u8 = 0;

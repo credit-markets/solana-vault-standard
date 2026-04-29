@@ -190,6 +190,13 @@ export class CreditVault {
       ASSOCIATED_TOKEN_PROGRAM_ID,
     );
 
+    // Plan C Task 3 / Step 3b — initialize_pool binds the cPOOL mint's
+    // Token-2022 TransferHook extension to compliance-hook in this tx.
+    // The dependent compliance-hook PDAs (MintConfig, EAML) and the
+    // infrastructure attestations (wrapper / vault / admin) are
+    // initialized by the deployment runbook in SEPARATE follow-up txs
+    // calling compliance-hook + mock-sas directly. See svs-11
+    // initialize_pool.rs for the cross-plan invariant rationale.
     await program.methods
       .initializePool(id, params.minimumInvestment, params.maxStaleness)
       .accountsPartial({
@@ -401,6 +408,7 @@ export class CreditVault {
     shares: BN,
     attestation: PublicKey,
     frozenCheck?: PublicKey,
+    queuedForSettlementAt?: BN,
   ): Promise<string> {
     const [redemptionRequest] = getRedemptionRequestAddress(
       this.program.programId,
@@ -409,8 +417,14 @@ export class CreditVault {
     );
     const investorSharesAccount = this.getInvestorSharesAccount(investor);
 
+    // Plan C Task 3 / P0.6 — `queued_for_settlement_at` is computed off-chain
+    // by the redemption-scheduler (Plan C Task 11). SDK callers without a
+    // scheduler can pass `0` as a sentinel; the manager will set the real
+    // settlement date on first `approveRedeem` partial fulfillment.
+    const queuedAt = queuedForSettlementAt ?? new BN(0);
+
     return this.program.methods
-      .requestRedeem(shares)
+      .requestRedeem(shares, queuedAt)
       .accountsPartial({
         investor,
         vault: this.vault,
@@ -434,6 +448,13 @@ export class CreditVault {
     attestation: PublicKey,
     frozenCheck?: PublicKey,
     navAccount?: PublicKey,
+    /// Plan C Task 3 / P0.6 — fixed-point ratio (1e18 = 100%). Default
+    /// preserves the pre-Plan-C "full fulfillment" semantics so existing
+    /// SDK callers continue to work.
+    batchSettlementRatioScaled?: BN,
+    /// Plan C Task 3 / P0.6 — settlement epoch the request auto-requeues
+    /// to on partial fulfillment. Ignored on full fulfillment.
+    nextSettlementAt?: BN,
   ): Promise<string> {
     const [redemptionRequest] = getRedemptionRequestAddress(
       this.program.programId,
@@ -446,8 +467,12 @@ export class CreditVault {
       investor,
     );
 
+    const ratio =
+      batchSettlementRatioScaled ?? new BN("1000000000000000000"); // 1e18 default
+    const nextSettlement = nextSettlementAt ?? new BN(0);
+
     return this.program.methods
-      .approveRedeem()
+      .approveRedeem(ratio, nextSettlement)
       .accountsPartial({
         manager,
         vault: this.vault,

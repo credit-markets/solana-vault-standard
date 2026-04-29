@@ -63,13 +63,36 @@ pub mod svs_11 {
     }
 
     /// Request a redemption of vault shares.
-    pub fn request_redeem(ctx: Context<RequestRedeem>, shares: u64) -> Result<()> {
-        instructions::request_redeem::handler(ctx, shares)
+    ///
+    /// `queued_for_settlement_at` is computed off-chain by the backend
+    /// redemption-scheduler service (Plan C Task 11) and represents the
+    /// next settlement-date epoch this request will be eligible for.
+    /// `approve_redeem` may auto-bump this on partial fulfillment.
+    pub fn request_redeem(
+        ctx: Context<RequestRedeem>,
+        shares: u64,
+        queued_for_settlement_at: i64,
+    ) -> Result<()> {
+        instructions::request_redeem::handler(ctx, shares, queued_for_settlement_at)
     }
 
-    /// Manager approves a pending redemption request.
-    pub fn approve_redeem(ctx: Context<ApproveRedeem>) -> Result<()> {
-        instructions::approve_redeem::handler(ctx)
+    /// Manager approves a pending redemption request with pro-rata fulfillment.
+    ///
+    /// `batch_settlement_ratio_scaled` is a fixed-point ratio scaled to 1e18
+    /// (1e18 = 100% fulfillment). On partial fulfillment, the request stays
+    /// open and `queued_for_settlement_at` auto-bumps to `next_settlement_at`.
+    /// Pass `1_000_000_000_000_000_000` (1e18) plus any `next_settlement_at`
+    /// to preserve old "full fulfillment" semantics.
+    pub fn approve_redeem(
+        ctx: Context<ApproveRedeem>,
+        batch_settlement_ratio_scaled: u128,
+        next_settlement_at: i64,
+    ) -> Result<()> {
+        instructions::approve_redeem::handler(
+            ctx,
+            batch_settlement_ratio_scaled,
+            next_settlement_at,
+        )
     }
 
     /// Claim approved redemption assets.

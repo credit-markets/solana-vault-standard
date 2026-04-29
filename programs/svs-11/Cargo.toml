@@ -19,7 +19,13 @@ idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 modules = ["svs-module-hooks", "svs-fees", "svs-caps", "svs-locks", "svs-access", "svs-rewards"]
 
 [dependencies]
-anchor-lang = { version = "0.31.1" }
+# Plan C Task 3 / P0.6 — `init-if-needed` is required for the
+# `claimable_tokens` ATA in approve_redeem. Pro-rata fulfillment may invoke
+# approve_redeem multiple times for the same redemption_request; the first
+# call initializes the claimable PDA, subsequent calls top it up via
+# transfer_checked. Without this feature the second partial settlement would
+# fail re-init.
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
 anchor-spl = { version = "0.31.1", features = ["token", "associated_token", "metadata"] }
 spl-token-2022 = "6.0.0"
 svs-oracle = { path = "../../modules/svs-oracle" }
@@ -29,3 +35,12 @@ svs-locks = { path = "../../modules/svs-locks", optional = true }
 svs-access = { path = "../../modules/svs-access", optional = true }
 svs-rewards = { path = "../../modules/svs-rewards", optional = true }
 svs-module-hooks = { path = "../../modules/svs-module-hooks", optional = true }
+
+# Plan C Task 3 / Step 3b — finalizes the cPOOL TransferHook integration
+# whose first half lives in Plan A. We CPI into compliance-hook's
+# `initialize_extra_account_meta_list` (Task 9b) and into mock-sas's
+# `create_attestation_with_metadata` (Task 8) from `initialize_pool`. Both
+# deps are pinned with the `cpi` feature so we get the typed Cpi accounts
+# helpers without pulling in the full programs as entrypoints.
+compliance-hook = { path = "../compliance-hook", features = ["cpi"] }
+mock-sas = { path = "../mock-sas", features = ["cpi"] }

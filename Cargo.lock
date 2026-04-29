@@ -2929,6 +2929,8 @@ version = "2.0.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+ "compliance-hook",
+ "mock-sas",
  "spl-token-2022",
  "svs-access",
  "svs-caps",

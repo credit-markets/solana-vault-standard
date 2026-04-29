@@ -73,7 +73,11 @@ pub struct RequestRedeem<'info> {
     pub clock: Sysvar<'info, Clock>,
 }
 
-pub fn handler(ctx: Context<RequestRedeem>, shares: u64) -> Result<()> {
+pub fn handler(
+    ctx: Context<RequestRedeem>,
+    shares: u64,
+    queued_for_settlement_at: i64,
+) -> Result<()> {
     require!(shares > 0, VaultError::ZeroAmount);
     require!(!ctx.accounts.vault.paused, VaultError::VaultPaused);
 
@@ -139,6 +143,18 @@ pub fn handler(ctx: Context<RequestRedeem>, shares: u64) -> Result<()> {
     request.requested_at = ctx.accounts.clock.unix_timestamp;
     request.fulfilled_at = 0;
     request.bump = ctx.bumps.redemption_request;
+
+    // Plan C Task 3 / P0.6 — pro-rata fulfillment + auto-requeue defaults.
+    // `original_shares` snapshots the initial intent and is never mutated
+    // after creation; consumers can compare `original_shares` vs
+    // `fulfilled_shares_cumulative` to display per-investor settlement
+    // progress. `queued_for_settlement_at` is computed off-chain by the
+    // backend's redemption-scheduler service (Plan C Task 11) and passed in
+    // here. `fulfilled_shares_cumulative` starts at 0; `approve_redeem`
+    // accumulates across one or more partial-fulfillment calls.
+    request.original_shares = shares;
+    request.queued_for_settlement_at = queued_for_settlement_at;
+    request.fulfilled_shares_cumulative = 0;
 
     emit!(RedemptionRequested {
         vault: ctx.accounts.vault.key(),

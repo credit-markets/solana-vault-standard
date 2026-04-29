@@ -66,8 +66,12 @@ pub struct ApproveRedeem<'info> {
     #[account(constraint = asset_mint.key() == vault.asset_mint)]
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
 
+    /// Plan C Task 3 / P0.6 — `init_if_needed` so partial-fulfillment retries
+    /// don't fail re-init on the second approve_redeem for the same request.
+    /// First call creates the PDA; subsequent calls top up via the
+    /// transfer_checked below. claim_redeem closes it on terminal claim.
     #[account(
-        init,
+        init_if_needed,
         payer = manager,
         token::mint = asset_mint,
         token::authority = vault,
@@ -117,11 +121,30 @@ pub struct ApproveRedeem<'info> {
     pub clock: Sysvar<'info, Clock>,
 }
 
-pub fn handler(ctx: Context<ApproveRedeem>) -> Result<()> {
+/// Fixed-point scale used by `batch_settlement_ratio_scaled` (1e18 = 100%).
+/// Matches the spec convention so backend can compute ratios in the same
+/// fixed-point space the on-chain handler uses for division.
+const RATIO_SCALE_1E18: u128 = 1_000_000_000_000_000_000;
+
+pub fn handler(
+    ctx: Context<ApproveRedeem>,
+    batch_settlement_ratio_scaled: u128,
+    next_settlement_at: i64,
+) -> Result<()> {
     require!(!ctx.accounts.vault.paused, VaultError::VaultPaused);
     require!(
         ctx.accounts.frozen_check.data_is_empty(),
         VaultError::AccountFrozen
+    );
+
+    // Plan C Task 3 / P0.6 — guard against malformed ratios. 0 ⇒ nothing to
+    // fulfill (caller should reject_redeem instead). > 1e18 ⇒ would over-burn
+    // the remaining shares; cap at 1e18 so a buggy backend doesn't bypass the
+    // remaining-shares math.
+    require!(
+        batch_settlement_ratio_scaled > 0
+            && batch_settlement_ratio_scaled <= RATIO_SCALE_1E18,
+        VaultError::ZeroAmount
     );
 
     // V4-P20 FIX: Reconciliation check — verify stored total_shares matches
@@ -211,14 +234,44 @@ pub fn handler(ctx: Context<ApproveRedeem>) -> Result<()> {
             .map_err(|_| VaultError::OracleDeviationExceeded)?;
     }
 
-    let shares_locked = ctx.accounts.redemption_request.shares_locked;
-    let gross_assets = math::shares_to_assets(shares_locked, price)?;
+    // Plan C Task 3 / P0.6 — compute the pro-rata cut for THIS settlement.
+    //
+    // `remaining` = shares not yet fulfilled across prior partial settlements
+    // (or the full `shares_locked` on the first call). `fulfill` is the
+    // floor-rounded portion of `remaining` allocated to this batch. Round-
+    // down favors the vault: a residual sub-1-share dust never burns more
+    // than the ratio actually allows.
+    //
+    // CRITICAL precedence note (Plan C audit 2026-04-27): Rust's `as u64`
+    // binds tighter than `/`, so we MUST parenthesize the division before
+    // the cast. The form `(((remaining as u128) * ratio) / 1e18) as u64`
+    // is correct; `(remaining as u128) * ratio / 1e18 as u64` would
+    // truncate `1e18` to `u64::MAX` first and produce nonsense.
+    let request_snapshot = &ctx.accounts.redemption_request;
+    let shares_locked = request_snapshot.shares_locked;
+    let already_fulfilled = request_snapshot.fulfilled_shares_cumulative;
+    let remaining = shares_locked
+        .checked_sub(already_fulfilled)
+        .ok_or(VaultError::MathOverflow)?;
+    require!(remaining > 0, VaultError::ZeroAmount);
+
+    let fulfill: u64 =
+        (((remaining as u128) * batch_settlement_ratio_scaled) / RATIO_SCALE_1E18) as u64;
+    require!(fulfill > 0, VaultError::ZeroAmount);
+    require!(fulfill <= remaining, VaultError::MathOverflow);
+
+    let gross_assets = math::shares_to_assets(fulfill, price)?;
 
     #[cfg(feature = "modules")]
     let net_assets = {
-        let remaining = ctx.remaining_accounts;
+        let remaining_accounts = ctx.remaining_accounts;
         let vault_key = ctx.accounts.vault.key();
-        let result = module_hooks::apply_exit_fee(remaining, &crate::ID, &vault_key, gross_assets)?;
+        let result = module_hooks::apply_exit_fee(
+            remaining_accounts,
+            &crate::ID,
+            &vault_key,
+            gross_assets,
+        )?;
         result.net_assets
     };
     #[cfg(not(feature = "modules"))]
@@ -255,7 +308,7 @@ pub fn handler(ctx: Context<ApproveRedeem>) -> Result<()> {
             },
             &[vault_seeds],
         ),
-        shares_locked,
+        fulfill,
     )?;
 
     transfer_checked(
@@ -273,10 +326,45 @@ pub fn handler(ctx: Context<ApproveRedeem>) -> Result<()> {
         ctx.accounts.asset_mint.decimals,
     )?;
 
+    // Plan C Task 3 / P0.6 — accumulate fulfilled shares + branch on
+    // full vs partial fulfillment.
+    //
+    // Full fulfillment: cumulative reaches/exceeds shares_locked → status
+    // flips to Approved, `fulfilled_at` is stamped, request stays open
+    // until claim_redeem closes it (existing flow).
+    //
+    // Partial: cumulative < shares_locked → status stays Pending,
+    // `queued_for_settlement_at` advances to the next-batch epoch passed
+    // by the manager. The PDA stays alive so the next approve_redeem call
+    // can fulfill the remainder.
+    //
+    // `assets_claimable` ACCUMULATES across settlements (not overwritten)
+    // so claim_redeem can transfer the cumulative payout in a single ix.
+    // The on-chain ATA `claimable_tokens` already holds the cumulative
+    // balance (via the transfer_checked above on each call); the PDA
+    // field stays in sync for off-chain consumers reading the request.
+    let now = ctx.accounts.clock.unix_timestamp;
     let request = &mut ctx.accounts.redemption_request;
-    request.status = RequestStatus::Approved;
-    request.assets_claimable = net_assets;
-    request.fulfilled_at = ctx.accounts.clock.unix_timestamp;
+    let new_cumulative = request
+        .fulfilled_shares_cumulative
+        .checked_add(fulfill)
+        .ok_or(VaultError::MathOverflow)?;
+    request.fulfilled_shares_cumulative = new_cumulative;
+    request.assets_claimable = request
+        .assets_claimable
+        .checked_add(net_assets)
+        .ok_or(VaultError::MathOverflow)?;
+
+    if new_cumulative >= shares_locked {
+        request.status = RequestStatus::Approved;
+        request.fulfilled_at = now;
+        // queued_for_settlement_at intentionally NOT bumped on full
+        // fulfillment — the request is terminal.
+    } else {
+        // Partial: stays Pending; auto-requeue to the next settlement date.
+        // (status already Pending per the Accounts constraint above.)
+        request.queued_for_settlement_at = next_settlement_at;
+    }
 
     let vault = &mut ctx.accounts.vault;
     vault.total_assets = vault
@@ -285,12 +373,18 @@ pub fn handler(ctx: Context<ApproveRedeem>) -> Result<()> {
         .ok_or(VaultError::MathOverflow)?;
     vault.total_shares = vault
         .total_shares
-        .checked_sub(shares_locked)
+        .checked_sub(fulfill)
         .ok_or(VaultError::MathOverflow)?;
-    vault.total_pending_redeems = vault
-        .total_pending_redeems
-        .checked_sub(1)
-        .ok_or(VaultError::MathOverflow)?;
+    // Only decrement the pending counter on FULL fulfillment — a partial
+    // settlement leaves the request in the queue, so the count of pending
+    // requests is unchanged. (cancel/reject continue to handle the
+    // mid-flight cleanup paths.)
+    if new_cumulative >= shares_locked {
+        vault.total_pending_redeems = vault
+            .total_pending_redeems
+            .checked_sub(1)
+            .ok_or(VaultError::MathOverflow)?;
+    }
 
     // Persist NAV bookkeeping (mirrors approve_deposit). Sequence is only
     // advanced for the nav-oracle path; mock returns sentinel 0.
@@ -302,9 +396,13 @@ pub fn handler(ctx: Context<ApproveRedeem>) -> Result<()> {
     emit!(RedemptionApproved {
         vault: vault.key(),
         investor: ctx.accounts.investor.key(),
-        shares: shares_locked,
+        shares: fulfill,
         assets: net_assets,
         nav: price,
+        ratio_scaled: batch_settlement_ratio_scaled,
+        cumulative_fulfilled: new_cumulative,
+        next_settlement_at,
+        manager: ctx.accounts.manager.key(),
     });
 
     Ok(())
