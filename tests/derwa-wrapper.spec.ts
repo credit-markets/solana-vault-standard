@@ -1,0 +1,400 @@
+/**
+ * Plan C Task 9 — derwa-wrapper integration tests.
+ *
+ * Scope: this is a UNIT-level integration test of the wrapper logic only.
+ * It does NOT exercise the Token-2022 TransferHook → ComplianceHook path
+ * because:
+ *   1. Plan C Task 5b's spec defers MintConfig + ExtraAccountMetaList init
+ *      to the Plan C Task 14 deployment runbook (compliance-hook lacks a
+ *      public initialize_mint_config ix). Without those PDAs the hook
+ *      cannot resolve extra accounts on the in-CPI transfer_checked path.
+ *   2. Even with those PDAs, the wrapper's `wrap` / `unwrap` CPIs would
+ *      need remaining_accounts forwarding (Token-2022 auto-resolution
+ *      doesn't apply to CPI). That gap is documented in wrap.rs / unwrap.rs.
+ *
+ * What we test here:
+ *   ✅ wrap moves cPOOL → wrapper PDA + mints dePOOL 1:1 + bumps locked_supply
+ *   ✅ unwrap with valid attestation burns dePOOL + releases cPOOL + decrements locked_supply
+ *   ✅ unwrap without attestation rejects with AttestationRequired (8001)
+ *
+ * What we DO NOT test (deferred to Plan C Task 14 e2e runbook):
+ *   ❌ Hook-enforced sanctions checks during wrap (cPOOL transfer)
+ *   ❌ Hook-enforced attestation checks during unwrap (cPOOL transfer)
+ *   ❌ Mint-substitution attacks via wrap to a different (cPOOL, dePOOL) pair
+ *      — partially covered by the MintMismatch constraint compile-time test
+ */
+
+import * as anchor from "@coral-xyz/anchor";
+import { Program, BN } from "@coral-xyz/anchor";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
+import {
+  TOKEN_2022_PROGRAM_ID,
+  createMint,
+  createAssociatedTokenAccountIdempotent,
+  mintTo,
+  setAuthority,
+  AuthorityType,
+  getAccount,
+} from "@solana/spl-token";
+import { expect } from "chai";
+
+import { DerwaWrapper } from "../target/types/derwa_wrapper";
+import { MockSas as MockAttestation } from "../target/types/mock_sas";
+
+// Mock-sas program ID — matches Anchor.toml entry. Same constant used by
+// svs-11.ts; if mock-sas is redeployed, both must update.
+const ATTESTATION_PROGRAM_ID = new PublicKey(
+  "GTTMWDHTZibyEpqNRr33RnBhgms262U6qHaGrjoHqEXg",
+);
+const FAR_FUTURE_EXPIRY = new BN(4_102_444_800); // ~year 2100
+
+describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
+  const program = anchor.workspace.DerwaWrapper as Program<DerwaWrapper>;
+  const mockSas = anchor.workspace.MockSas as Program<MockAttestation>;
+  const connection = provider.connection;
+  const payer = (provider.wallet as anchor.Wallet).payer;
+
+  // Test-scoped principals.
+  const investor = Keypair.generate();
+  const attester = Keypair.generate(); // issuer of the SVS-11 attestation
+  const pool = Keypair.generate(); // stand-in for CreditVault PDA — wrapper
+  // doesn't deserialize, so any pubkey works
+
+  // Per-test-setup-derived state.
+  let permissionedMint: PublicKey; // cPOOL
+  let derwaMint: PublicKey; // dePOOL
+  let wrapperConfigPda: PublicKey;
+  let wrapperSignerPda: PublicKey;
+  let investorPermAta: PublicKey;
+  let investorDerwaAta: PublicKey;
+  let wrapperLockedAta: PublicKey;
+  let attestationPda: PublicKey;
+
+  const WRAP_AMOUNT = new BN(1_000_000); // 1.0 token at 6 decimals
+
+  before(async () => {
+    // Fund investor for tx fees + ATA rent.
+    const sig = await connection.requestAirdrop(
+      investor.publicKey,
+      5 * LAMPORTS_PER_SOL,
+    );
+    await connection.confirmTransaction(sig);
+
+    // Derive wrapper PDAs (must match seeds in derwa-wrapper state.rs).
+    [wrapperConfigPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("wrapper_config"), pool.publicKey.toBuffer()],
+      program.programId,
+    );
+    [wrapperSignerPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("wrapper_signer"), pool.publicKey.toBuffer()],
+      program.programId,
+    );
+
+    // Create cPOOL (permissioned mint). For these unit tests we DO NOT bind
+    // the TransferHook extension — the hook integration is deferred to the
+    // Task 14 deployment runbook (see file header). Investor is the initial
+    // mint authority just so we can fund the investor's cPOOL ATA.
+    permissionedMint = await createMint(
+      connection,
+      payer,
+      investor.publicKey,
+      null,
+      6,
+      undefined,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+
+    // Create dePOOL with `wrapperSignerPda` as the mint authority directly
+    // — the wrapper PDA is the only entity allowed to mint dePOOL via wrap().
+    // Setting it at create time avoids the round-trip of createMint + setAuthority.
+    derwaMint = await createMint(
+      connection,
+      payer,
+      wrapperSignerPda,
+      wrapperSignerPda,
+      6,
+      undefined,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+
+    // Create the three required ATAs.
+    investorPermAta = await createAssociatedTokenAccountIdempotent(
+      connection,
+      payer,
+      permissionedMint,
+      investor.publicKey,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    investorDerwaAta = await createAssociatedTokenAccountIdempotent(
+      connection,
+      payer,
+      derwaMint,
+      investor.publicKey,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    // wrapperSignerPda is a PDA (off-curve) — pass allowOwnerOffCurve=true.
+    // The signature is positional: (connection, payer, mint, owner,
+    // confirmOptions?, programId?, associatedTokenProgramId?, allowOwnerOffCurve?).
+    wrapperLockedAta = await createAssociatedTokenAccountIdempotent(
+      connection,
+      payer,
+      permissionedMint,
+      wrapperSignerPda,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+      undefined,
+      true,
+    );
+
+    // Mint cPOOL to investor — provides the source funds for the wrap test.
+    // Investor is the cPOOL mint authority (test-only convenience).
+    await mintTo(
+      connection,
+      payer,
+      permissionedMint,
+      investorPermAta,
+      investor,
+      10_000_000, // 10.0 cPOOL
+      [],
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+
+    // Initialize the wrapper for this pool.
+    await program.methods
+      .initialize()
+      .accountsPartial({
+        pool: pool.publicKey,
+        wrapperConfig: wrapperConfigPda,
+        permissionedMint,
+        derwaMint,
+        payer: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+  });
+
+  it("wrap moves cPOOL to wrapper PDA + mints dePOOL 1:1", async () => {
+    const investorPermBefore = await getAccount(
+      connection,
+      investorPermAta,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    const investorDerwaBefore = await getAccount(
+      connection,
+      investorDerwaAta,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    const wrapperLockedBefore = await getAccount(
+      connection,
+      wrapperLockedAta,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+
+    await program.methods
+      .wrap(WRAP_AMOUNT)
+      .accountsPartial({
+        wrapperConfig: wrapperConfigPda,
+        wrapperSigner: wrapperSignerPda,
+        permissionedMint,
+        derwaMint,
+        investorPermissionedAta: investorPermAta,
+        wrapperLockedAta,
+        investorDerwaAta,
+        investor: investor.publicKey,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+      })
+      .signers([investor])
+      .rpc();
+
+    // Balance assertions: cPOOL moved investor → wrapper, dePOOL minted to investor.
+    const investorPermAfter = await getAccount(
+      connection,
+      investorPermAta,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    const investorDerwaAfter = await getAccount(
+      connection,
+      investorDerwaAta,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    const wrapperLockedAfter = await getAccount(
+      connection,
+      wrapperLockedAta,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    const wrapAmt = BigInt(WRAP_AMOUNT.toString());
+
+    expect(investorPermAfter.amount).to.equal(
+      investorPermBefore.amount - wrapAmt,
+    );
+    expect(wrapperLockedAfter.amount).to.equal(
+      wrapperLockedBefore.amount + wrapAmt,
+    );
+    expect(investorDerwaAfter.amount).to.equal(
+      investorDerwaBefore.amount + wrapAmt,
+    );
+
+    // locked_supply on-chain matches.
+    const cfg = await program.account.wrapperConfig.fetch(wrapperConfigPda);
+    expect(cfg.lockedSupply.eq(WRAP_AMOUNT)).to.be.true;
+  });
+
+  it("unwrap with valid attestation burns dePOOL + releases cPOOL", async () => {
+    // Create a real attestation PDA for the investor via mock-sas. The
+    // mock-sas attestation layout matches what compliance-hook + unwrap
+    // both read (129 bytes total, expires_at at payload[75..83], revoked
+    // at payload[83]).
+    [attestationPda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("attestation"),
+        investor.publicKey.toBuffer(),
+        attester.publicKey.toBuffer(),
+        Buffer.from([0]), // attestation_type = 0 (KYB tier 0)
+      ],
+      ATTESTATION_PROGRAM_ID,
+    );
+
+    await mockSas.methods
+      .createAttestation(attester.publicKey, 0, [66, 82], FAR_FUTURE_EXPIRY)
+      .accountsPartial({
+        authority: payer.publicKey,
+        attestation: attestationPda,
+        subject: investor.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    const investorPermBefore = await getAccount(
+      connection,
+      investorPermAta,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    const investorDerwaBefore = await getAccount(
+      connection,
+      investorDerwaAta,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+
+    await program.methods
+      .unwrap(WRAP_AMOUNT)
+      .accountsPartial({
+        wrapperConfig: wrapperConfigPda,
+        wrapperSigner: wrapperSignerPda,
+        permissionedMint,
+        derwaMint,
+        wrapperLockedAta,
+        investorPermissionedAta: investorPermAta,
+        investorDerwaAta,
+        investorAttestation: attestationPda,
+        investor: investor.publicKey,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+      })
+      .signers([investor])
+      .rpc();
+
+    const investorPermAfter = await getAccount(
+      connection,
+      investorPermAta,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    const investorDerwaAfter = await getAccount(
+      connection,
+      investorDerwaAta,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    const wrapAmt = BigInt(WRAP_AMOUNT.toString());
+
+    // cPOOL flows back, dePOOL gets burned.
+    expect(investorPermAfter.amount).to.equal(
+      investorPermBefore.amount + wrapAmt,
+    );
+    expect(investorDerwaAfter.amount).to.equal(
+      investorDerwaBefore.amount - wrapAmt,
+    );
+
+    // locked_supply now zero.
+    const cfg = await program.account.wrapperConfig.fetch(wrapperConfigPda);
+    expect(cfg.lockedSupply.eqn(0)).to.be.true;
+  });
+
+  it("unwrap without attestation fails with AttestationRequired (8001)", async () => {
+    // First, re-wrap so we have something to attempt to unwrap.
+    await program.methods
+      .wrap(WRAP_AMOUNT)
+      .accountsPartial({
+        wrapperConfig: wrapperConfigPda,
+        wrapperSigner: wrapperSignerPda,
+        permissionedMint,
+        derwaMint,
+        investorPermissionedAta: investorPermAta,
+        wrapperLockedAta,
+        investorDerwaAta,
+        investor: investor.publicKey,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+      })
+      .signers([investor])
+      .rpc();
+
+    // Pass a random non-existent pubkey as the attestation account.
+    // The unwrap handler checks `att.lamports() > 0 && att.data_len() > 0`
+    // first, which fails for a non-existent system account — yields
+    // AttestationRequired (DeRwaError variant 8001).
+    const fakeAttestation = Keypair.generate().publicKey;
+
+    let errored = false;
+    try {
+      await program.methods
+        .unwrap(WRAP_AMOUNT)
+        .accountsPartial({
+          wrapperConfig: wrapperConfigPda,
+          wrapperSigner: wrapperSignerPda,
+          permissionedMint,
+          derwaMint,
+          wrapperLockedAta,
+          investorPermissionedAta: investorPermAta,
+          investorDerwaAta,
+          investorAttestation: fakeAttestation,
+          investor: investor.publicKey,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        })
+        .signers([investor])
+        .rpc();
+    } catch (e: unknown) {
+      errored = true;
+      const errStr = String(e);
+      // Anchor errors include the error code in the message; we check for the
+      // hex form of 8001 (= 0x1f41) OR the variant name.
+      expect(
+        errStr.includes("AttestationRequired") ||
+          errStr.includes("0x1f41") ||
+          errStr.includes("8001"),
+      ).to.equal(
+        true,
+        `Expected AttestationRequired error, got: ${errStr}`,
+      );
+    }
+    expect(errored).to.equal(true, "unwrap should have rejected");
+  });
+});
