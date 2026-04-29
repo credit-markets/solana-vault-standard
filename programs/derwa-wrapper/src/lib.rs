@@ -27,4 +27,12 @@ pub mod derwa_wrapper {
     pub fn wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
         instructions::wrap::handler(ctx, amount)
     }
+
+    /// Unwrap dePOOL → cPOOL at 1:1. Burns dePOOL and releases cPOOL back
+    /// to investor — but ONLY if the destination wallet has a valid,
+    /// non-revoked, non-expired attestation. Prevents non-KYB buyers from
+    /// escaping the permissioned token via DEX-purchased dePOOL → unwrap.
+    pub fn unwrap(ctx: Context<Unwrap>, amount: u64) -> Result<()> {
+        instructions::unwrap::handler(ctx, amount)
+    }
 }
