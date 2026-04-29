@@ -19,4 +19,12 @@ pub mod derwa_wrapper {
     pub fn initialize(ctx: Context<InitializeWrapper>) -> Result<()> {
         instructions::initialize::handler(ctx)
     }
+
+    /// Wrap permissioned cPOOL → freely-transferable dePOOL at 1:1.
+    /// Investor transfers cPOOL into wrapper-PDA-owned ATA; wrapper mints
+    /// dePOOL to investor. `locked_supply` increments to enforce the
+    /// invariant `locked_supply == dePOOL.supply`.
+    pub fn wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
+        instructions::wrap::handler(ctx, amount)
+    }
 }
