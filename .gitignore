@@ -9,6 +9,9 @@
 .secrets
 *.local.md
 
+# Per-pool dePOOL mint artifacts (Plan C Task 5b — devnet-specific, contains pubkeys only but per-cluster)
+.derwa-mints-*.json
+
 # Secrets and keys
 *.pem
 *.key
