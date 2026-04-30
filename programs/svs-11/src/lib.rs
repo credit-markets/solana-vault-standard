@@ -130,6 +130,16 @@ pub mod svs_11 {
         instructions::compliance::unfreeze_handler(ctx)
     }
 
+    /// One-shot migration of an existing CreditVault from the
+    /// pre-oracle-v2 layout to the current layout (+32 bytes for
+    /// NavOracle integration fields). Idempotent on already-migrated
+    /// accounts. Authority-gated.
+    pub fn realloc_credit_vault_for_oracle_v2(
+        ctx: Context<ReallocCreditVaultForOracleV2>,
+    ) -> Result<()> {
+        instructions::realloc_credit_vault_for_oracle_v2::handler(ctx)
+    }
+
     /// Pause the vault, halting approvals and capital movements.
     pub fn pause(ctx: Context<Admin>) -> Result<()> {
         instructions::admin::pause_handler(ctx)

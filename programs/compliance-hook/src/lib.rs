@@ -21,12 +21,26 @@ pub mod compliance_hook {
         instructions::initialize_sanctions_list::handler(ctx)
     }
 
+    /// Initialize the per-mint `MintConfig` PDA. Called per Token-2022
+    /// mint that uses this hook; binds the mint's compliance posture
+    /// (`FreelyTransferable` vs `Permissioned`, optional `pool_policy`)
+    /// so `execute` can branch without further state lookup. Authorized
+    /// by the mint's `mint_authority` signer — fails with
+    /// `UnauthorizedAuthority` if the signer doesn't match.
+    pub fn initialize_mint_config(
+        ctx: Context<InitializeMintConfig>,
+        args: InitializeMintConfigArgs,
+    ) -> Result<()> {
+        instructions::initialize_mint_config::handler(ctx, args)
+    }
+
     /// Initialize the per-mint `ExtraAccountMetaList` PDA at
     /// `[b"extra-account-metas", mint]` — the Token-2022 TransferHook
     /// spec requires this PDA so the runtime can resolve the extra
     /// accounts `execute` consumes beyond the canonical 4. Sized for
     /// `Permissioned` mode (7 extras) so a future mode switch does not
-    /// require realloc.
+    /// require realloc. Pre-condition: `MintConfig` for the mint must
+    /// already exist (typed account constraint).
     pub fn initialize_extra_account_meta_list(
         ctx: Context<InitializeExtraAccountMetaList>,
     ) -> Result<()> {

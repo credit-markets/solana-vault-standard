@@ -28,4 +28,13 @@ pub enum ComplianceHookError {
 
     #[msg("Pool policy does not permit this jurisdiction")]
     JurisdictionNotPermitted = 6008,
+
+    #[msg("Mint account does not deserialize as a valid Token-2022 mint")]
+    InvalidMintAccount = 6009,
+
+    #[msg("Permissioned mode requires a pool_policy")]
+    MissingPoolPolicyForPermissioned = 6010,
+
+    #[msg("FreelyTransferable mode rejects a pool_policy (must be None)")]
+    PoolPolicySetOnFreelyTransferable = 6011,
 }
