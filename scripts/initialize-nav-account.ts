@@ -99,24 +99,27 @@ function parseArgs(): Args {
     printUsageAndExit(1);
   }
 
-  // Refuse to run with sentinel/zero pubkeys — easy to hit by mistake when
-  // smoke-testing CLI parsing without realizing the script will broadcast a
-  // real on-chain tx. (Lesson learned the hard way: a smoke test with
-  // `--pool 1111...11 --publisher 1111...11` deployed a junk NavAccount on
-  // devnet at `E4X39dtn...kfnqC` because every input was technically valid.)
-  const SUSPICIOUS = new Set([
-    "11111111111111111111111111111111", // System Program / sentinel
-    "11111111111111111111111111111112", // off-by-one variant
-  ]);
+  // Refuse to run with the all-zero pubkey (System Program), which is
+  // easy to hit by mistake when smoke-testing CLI parsing. The script
+  // broadcasts a real on-chain tx, so any value-shaped input would
+  // otherwise just go through.
+  const SYSTEM_PROGRAM = SystemProgram.programId.toBase58();
   for (const [name, value] of [
     ["pool", pool],
     ["publisher", publisher],
     ["rotation-authority", rotationAuthority],
   ] as const) {
-    if (SUSPICIOUS.has(value!)) {
+    let parsed: PublicKey;
+    try {
+      parsed = new PublicKey(value!);
+    } catch {
+      console.error(`❌ --${name}=${value} is not a valid base58 pubkey.`);
+      process.exit(1);
+    }
+    if (parsed.toBase58() === SYSTEM_PROGRAM) {
       console.error(
-        `❌ Refusing to run: --${name}=${value} looks like a sentinel/zero pubkey.\n` +
-          `   This script broadcasts a real on-chain tx; pass real values or use --help.`,
+        `❌ Refusing to run: --${name}=${value} is the System Program / zero pubkey.\n` +
+          `   Pass a real pubkey or use --help.`,
       );
       process.exit(1);
     }
