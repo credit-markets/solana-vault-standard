@@ -50,6 +50,7 @@ async function deployVault(
   conn: Connection,
   payer: Keypair,
   cfg: VaultConfig,
+  treasury: PublicKey,
 ): Promise<{ multisigPda: PublicKey; targetThreshold: number; targetMembers: string[]; deploySignature: string }> {
   // Stage 0 of the Day-1 bootstrap (per signer-policy doc):
   //   Deploy at threshold=1 with deployer as the SOLE member. The real signer set
@@ -59,6 +60,11 @@ async function deployVault(
   // DO NOT shortcut this by deploying at the final threshold directly — if even
   // one signer's pubkey is wrong or unreachable, the vault becomes unusable
   // because no quorum can be reached to fix it.
+  //
+  // `treasury` is the global Squads-controlled PDA from ProgramConfig, NOT the
+  // deployer pubkey — Squads V4 routes the multisig creation fee to it. See
+  // main() for derivation. (Earlier draft passed payer.publicKey here and hit
+  // InvalidAccount 6014 from the on-chain assert at multisig_create.rs:69.)
   const createKey = Keypair.generate();
   const [multisigPda] = multisig.getMultisigPda({ createKey: createKey.publicKey });
 
@@ -75,7 +81,7 @@ async function deployVault(
     timeLock: 0, // P0.10 has no timelock; P1.1 adds 48h for Protocol Guardian
     createKey,
     rentCollector: null,
-    treasury: payer.publicKey,
+    treasury,
   });
 
   console.log(`✅ Stage 0: ${cfg.label} deployed at threshold=1 (deployer-only) — ${multisigPda.toBase58()} (sig: ${sig})`);
@@ -95,9 +101,22 @@ async function main() {
     Uint8Array.from(JSON.parse(fs.readFileSync(process.env.SOLANA_DEPLOYER_KEY!, "utf-8"))),
   );
 
+  // Squads V4 requires routing the multisig creation fee to the treasury PDA
+  // stored in the global ProgramConfig (NOT an arbitrary deployer-controlled
+  // address). Read once and reuse across all 3 vault deploys.
+  const [programConfigPda] = multisig.getProgramConfigPda({});
+  const programConfig = await multisig.accounts.ProgramConfig.fromAccountAddress(
+    conn,
+    programConfigPda,
+  );
+  const treasury = programConfig.treasury;
+  console.log(`📋 Squads programConfig: ${programConfigPda.toBase58()}`);
+  console.log(`💰 Treasury (creation fee sink): ${treasury.toBase58()}`);
+  console.log(`💵 Multisig creation fee: ${programConfig.multisigCreationFee.toString()} lamports\n`);
+
   const results: Record<string, { multisigPda: string; target_threshold: number; target_members: string[]; deploy_signature: string }> = {};
   for (const cfg of vaultConfigs) {
-    const r = await deployVault(conn, payer, cfg);
+    const r = await deployVault(conn, payer, cfg, treasury);
     results[cfg.label] = {
       multisigPda: r.multisigPda.toBase58(),
       target_threshold: r.targetThreshold,
