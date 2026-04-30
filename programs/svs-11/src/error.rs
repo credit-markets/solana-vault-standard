@@ -140,7 +140,7 @@ pub enum VaultError {
     PendingTransferExists,
 
     // -------------------------------------------------------------------------
-    // Plan B Task 6 — NavOracle integration error variants
+    // NavOracle integration error variants
     // -------------------------------------------------------------------------
     #[msg("NAV oracle account is missing or empty")]
     OracleAccountMissing,

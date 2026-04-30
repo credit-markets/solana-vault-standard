@@ -13,9 +13,9 @@ use crate::state::{ComplianceMode, MintConfig, SanctionsList};
 /// looks up exactly `b"extra-account-metas"`.
 pub const EXTRA_ACCOUNT_METAS_SEED: &[u8] = b"extra-account-metas";
 
-/// Capacity sized for max-case (`Permissioned` mode = 7 extras) so that a
-/// later `set_compliance_mode` admin call (Plan A Task 8 mode-switch path)
-/// can mutate the mode in place without reallocating this PDA. The
+/// Capacity sized for max-case (`Permissioned` mode = 7 extras) so that
+/// a later `set_compliance_mode` admin call can mutate the mode in
+/// place without reallocating this PDA. The
 /// `FreelyTransferable` mode underuses the slack, but the per-PDA waste
 /// (~3 ExtraAccountMeta entries = ~105 bytes) is acceptable in exchange
 /// for avoiding realloc CPIs on mode switches.
@@ -43,12 +43,10 @@ pub struct InitializeExtraAccountMetaList<'info> {
     /// `mint_authority` signer below provides the access-control gate.
     pub mint: UncheckedAccount<'info>,
 
-    /// Per-mint configuration; mode is read directly via the typed
+    /// Per-mint configuration. Mode is read directly via the typed
     /// `Account<'info, MintConfig>` wrapper, which Anchor validates
-    /// against the canonical seeds before this handler runs. This is the
-    /// preferred fix for the V1.C audit `read_mint_config_mode` stub —
-    /// the mode is now read from a deserialized account rather than an
-    /// unsafe raw byte read.
+    /// against the canonical seeds before this handler runs — safer
+    /// than a raw byte read.
     #[account(
         seeds = [MintConfig::SEED_PREFIX, mint.key().as_ref()],
         bump,
@@ -56,10 +54,10 @@ pub struct InitializeExtraAccountMetaList<'info> {
     )]
     pub mint_config: Account<'info, MintConfig>,
 
-    /// Mint authority — must sign so a stranger can't init another mint's
-    /// extra-account-meta-list. Plan A does not yet validate that this
-    /// matches `Mint::transfer_hook_authority`; the cross-plan invariant
-    /// (Plan C Task 3 / Task 5) enforces it at the binding site.
+    /// Mint authority — must sign so a stranger can't init another
+    /// mint's extra-account-meta-list. We do NOT validate that this
+    /// matches `Mint::transfer_hook_authority` here; that invariant
+    /// is enforced at the mint-binding site.
     pub mint_authority: Signer<'info>,
 
     #[account(mut)]
@@ -195,7 +193,7 @@ fn build_extra_account_metas(mode: ComplianceMode) -> Result<Vec<ExtraAccountMet
         )?);
         // pool_policy: read from `mint_config.pool_policy` field.
         //
-        // CRITICAL (V1.A audit fix): `account_index` MUST be 4, NOT 5.
+        // CRITICAL: `account_index` MUST be 4, NOT 5.
         // The Token-2022 runtime resolves `Seed::AccountData` against
         // the COMPLETE account list (canonical 4 + already-pushed
         // extras), so:

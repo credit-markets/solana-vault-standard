@@ -65,8 +65,8 @@ pub mod svs_11 {
     /// Request a redemption of vault shares.
     ///
     /// `queued_for_settlement_at` is computed off-chain by the backend
-    /// redemption-scheduler service (Plan C Task 11) and represents the
-    /// next settlement-date epoch this request will be eligible for.
+    /// redemption-scheduler service and represents the next
+    /// settlement-date epoch this request will be eligible for.
     /// `approve_redeem` may auto-bump this on partial fulfillment.
     pub fn request_redeem(
         ctx: Context<RequestRedeem>,

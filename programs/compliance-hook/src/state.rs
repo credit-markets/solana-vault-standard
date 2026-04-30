@@ -58,10 +58,11 @@ pub enum ComplianceMode {
 /// - `mode`         : `ComplianceMode` (1 byte)         offset 40..41
 /// - `pool_policy`  : `Option<Pubkey>` (1 + up to 32)   offset 41..74
 ///
-/// `pool_policy` reserves the 33-byte max-case so layout is fixed-size; the
-/// `Option<Pubkey>` byte at offset 41 is the discriminator (0 = None,
-/// 1 = Some). Per audit V1.A / P0.B, `pool_policy` lives at byte offset
-/// `8 + 34 = 42` inside the account (Plan A Task 9b consumes that offset).
+/// `pool_policy` reserves the 33-byte max-case so layout is fixed-size;
+/// the `Option<Pubkey>` byte at offset 41 is the discriminator
+/// (0 = None, 1 = Some). `pool_policy` lives at byte offset
+/// `8 + 34 = 42` inside the account; the ExtraAccountMetaList builder
+/// consumes that offset.
 #[account]
 pub struct MintConfig {
     pub mint: Pubkey,

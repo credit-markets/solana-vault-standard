@@ -7,12 +7,11 @@ use crate::state::CreditVault;
 /// Matches the spec's generic interface — compatible with SAS, Civic Pass, or
 /// any provider that writes accounts in this format.
 ///
-/// Field-order invariant: existing field offsets MUST NOT shift. New metadata
-/// fields are appended after `_reserved` (additive-only). Plan A Task 10's
-/// ComplianceHook `check_attestation` helper and Plan C Task 8's deRWA wrapper
-/// `unwrap` instruction read the new fields by absolute byte offset; reordering
-/// or inserting in the middle silently breaks them. See Plan A Task 8 for the
-/// full layout rationale.
+/// Field-order invariant: existing field offsets MUST NOT shift. New
+/// metadata fields are appended after `_reserved` (additive-only).
+/// ComplianceHook's `check_attestation` helper and the deRWA wrapper's
+/// `unwrap` instruction read these fields by absolute byte offset;
+/// reordering or inserting in the middle silently breaks them.
 ///
 /// Byte offsets (after the 8-byte Anchor discriminator):
 ///   0..32    subject (Pubkey)
@@ -38,11 +37,12 @@ pub struct Attestation {
     pub revoked: bool,
     pub bump: u8,
     pub _reserved: [u8; 32],
-    // ↓ NEW FIELDS APPENDED — order is load-bearing for Plan A Task 10 +
-    // Plan C Task 8 offset readers. Default-zero values mean "no policy
-    // enforcement" (infrastructure tier / unset jurisdiction / unset risk
-    // tier), preserving backward compatibility for accounts created before
-    // this upgrade (those accounts get realloc'd by Plan C Task 14).
+    // ↓ NEW FIELDS APPENDED — order is load-bearing for the
+    // ComplianceHook + deRWA wrapper offset readers. Default-zero values
+    // mean "no policy enforcement" (infrastructure tier / unset
+    // jurisdiction / unset risk tier), preserving backward compatibility
+    // for accounts created before this upgrade (those accounts get
+    // realloc'd in the bundled deploy).
     /// ISO 3166-1 alpha-2 jurisdiction code (e.g. b"BR", b"CH"). [0, 0] = unset.
     pub jurisdiction: [u8; 2],
     /// Investor classification: 0=infrastructure, 1=retail, 2=accredited, 3=qualified.

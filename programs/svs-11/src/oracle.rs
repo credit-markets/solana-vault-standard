@@ -88,12 +88,13 @@ pub fn read_and_validate_oracle(
 /// 6. Deviation guard — `|nav_net − previous_price| ≤ max_deviation_bps`
 ///    of `previous_price` (skipped on first read where `previous_price == 0`).
 ///
-/// **Publisher binding (design correction, plan Step 6):** The publisher
-/// pubkey is read directly from the on-chain `NavAccount.publisher` field
-/// rather than compared against a CreditVault-stored copy. This avoids a
-/// double-source-of-truth bug after `rotate_publisher` runs (Plan B Task 5).
-/// Authority over publisher rotation is gated by `key_rotation_authority`
-/// in the nav-oracle program (Protocol Guardian Squads vault).
+/// **Publisher binding:** The publisher pubkey is read directly from
+/// the on-chain `NavAccount.publisher` field rather than compared
+/// against a CreditVault-stored copy. This avoids a
+/// double-source-of-truth bug after `rotate_publisher` runs.
+/// Authority over publisher rotation is gated by
+/// `key_rotation_authority` in the nav-oracle program (Protocol
+/// Guardian Squads vault).
 ///
 /// Layout offsets (must match `nav_oracle::state::NavAccount`):
 ///

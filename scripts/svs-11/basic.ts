@@ -151,8 +151,8 @@ async function main() {
 
   console.log(`  Request redeem: ${explorerUrl(reqRedSig)}`);
 
-  // Plan C Task 3 / P0.6 — pass 1e18 ratio + 0 next-settlement to preserve
-  // pre-Plan-C "full fulfillment" semantics in this smoke-test script.
+  // Pass 1e18 ratio + 0 next-settlement to preserve full-fulfillment
+  // semantics in this smoke-test script.
   const appRedSig = await program.methods
     .approveRedeem(new BN("1000000000000000000"), new BN(0))
     .accountsPartial({

@@ -20,11 +20,11 @@ pub mod mock_sas {
         )
     }
 
-    /// Plan A Task 8 extension: create an attestation with the new metadata
-    /// fields (jurisdiction, investor_class, kyc_risk_tier). Each is optional
-    /// and defaults to zero (= "no policy enforcement"); pass `Some(...)` to
-    /// set explicit values. Mirrors the layout the ComplianceHook reads in
-    /// Permissioned mode (Plan A Task 10).
+    /// Create an attestation with metadata fields (jurisdiction,
+    /// investor_class, kyc_risk_tier). Each is optional and defaults
+    /// to zero (= "no policy enforcement"); pass `Some(...)` to set
+    /// explicit values. Mirrors the layout the ComplianceHook reads
+    /// in Permissioned mode.
     pub fn create_attestation_with_metadata(
         ctx: Context<CreateAttestation>,
         issuer: Pubkey,
@@ -112,9 +112,9 @@ fn create_attestation_inner(
     data[offset..offset + 32].copy_from_slice(&[0u8; 32]);
     offset += 32;
 
-    // ↓ Plan A Task 8 metadata extension (4 bytes total). Default-zero
-    // values mean "no policy enforcement" / infrastructure tier; the
-    // ComplianceHook treats zeros as wildcards.
+    // ↓ Metadata extension (4 bytes total). Default-zero values mean
+    // "no policy enforcement" / infrastructure tier; the ComplianceHook
+    // treats zeros as wildcards.
     // jurisdiction (2)
     data[offset..offset + 2].copy_from_slice(&jurisdiction.unwrap_or([0u8; 2]));
     offset += 2;
@@ -130,8 +130,8 @@ fn create_attestation_inner(
 }
 
 // Account size: 8 (disc) + 32 + 32 + 1 + 2 + 8 + 8 + 1 + 1 + 32 + 2 + 1 + 1 = 129
-// Layout includes the Plan A Task 8 metadata extension (jurisdiction,
-// investor_class, kyc_risk_tier) appended after _reserved.
+// Layout includes the metadata extension (jurisdiction, investor_class,
+// kyc_risk_tier) appended after _reserved.
 const ATTESTATION_ACCOUNT_SIZE: usize = 129;
 
 #[derive(Accounts)]

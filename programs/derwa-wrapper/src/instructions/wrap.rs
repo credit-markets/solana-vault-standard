@@ -14,19 +14,19 @@ use crate::state::WrapperConfig;
 /// `locked_supply == dePOOL.supply`.
 ///
 /// ─── HOOK ACCOUNT NOTE ────────────────────────────────────────────────────
-/// The cPOOL `transfer_checked` CPI invokes ComplianceHook in Permissioned mode.
-/// Token-2022's runtime auto-resolves the hook's ExtraAccountMetaList for
-/// top-level user txs, but for a CPI like this one the CALLER must pass the
-/// extra accounts in `remaining_accounts`. The current spec's `Wrap` accounts
-/// struct does not surface them — Plan C Task 9 integration tests + the Task
-/// 14 deployment runbook will need to either:
+/// The cPOOL `transfer_checked` CPI invokes ComplianceHook in Permissioned
+/// mode. Token-2022's runtime auto-resolves the hook's ExtraAccountMetaList
+/// for top-level user txs, but for a CPI like this one the CALLER must
+/// pass the extra accounts in `remaining_accounts`. The current `Wrap`
+/// accounts struct does NOT surface them. Three resolution paths:
 ///   (a) extend this struct to pass through remaining_accounts (preferred),
 ///   (b) gate cPOOL on a "mode = FreelyTransferable for wrapper-PDA-bound
 ///       transfers" rule inside compliance-hook's `execute`,
-///   (c) accept that the hook MintConfig isn't initialised yet (Task 5b
-///       deferral) so the hook is a no-op on devnet.
-/// Option (c) holds for the current devnet state. Once Plan C Task 14 closes
-/// the MintConfig gap, Task 9 tests will surface the issue and we add (a).
+///   (c) accept that the hook MintConfig isn't initialised yet so the
+///       hook is a no-op on devnet.
+/// Option (c) holds for the current devnet state. Once MintConfig
+/// initialisation lands, integration tests will surface the issue and
+/// we'll switch to (a).
 /// ──────────────────────────────────────────────────────────────────────────
 #[derive(Accounts)]
 pub struct Wrap<'info> {

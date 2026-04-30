@@ -1,28 +1,29 @@
 /**
- * Drain Redemption Requests Script (Plan C Task 1, P0.E)
+ * Drain Redemption Requests Script.
  *
  * Pre-flight tooling for the bundled SVS-11 upgrade.
  *
- * Enumerates every `RedemptionRequest` PDA whose `vault` field matches the
- * target pool on devnet and prints their state. PDAs in `Pending` are the
- * ones at risk: their account data is laid out per the OLD `RedemptionRequest`
- * struct, and after the bundled upgrade lands the layout grows (3 new fields
- * per Plan C) so Anchor will fail to deserialize them. They MUST be drained.
+ * Enumerates every `RedemptionRequest` PDA whose `vault` field matches
+ * the target pool on devnet and prints their state. PDAs in `Pending`
+ * are the ones at risk: their account data is laid out per the OLD
+ * `RedemptionRequest` struct, and after the bundled upgrade lands the
+ * layout grows (3 new fields) so Anchor will fail to deserialize them.
+ * They MUST be drained.
  *
  * IMPORTANT: this script runs AFTER backend has flipped
- * `pools.is_redemption_paused = TRUE` (Plan C Task 1 Step 2). The backend pause
- * stops NEW redemption-tx-builds; this script handles whatever was already
+ * `pools.is_redemption_paused = TRUE`. The backend pause stops NEW
+ * redemption-tx-builds; this script handles whatever was already
  * pending on-chain.
  *
- * Sequence (per spec lines 92-325):
- *   Step 1: backend migration + pause flag                — DONE in backend
- *   Step 2: flip is_redemption_paused = TRUE              — operator runs
- *   Step 3: this script (Step 3a: dry-run)                — see usage below
- *   Step 3b: 32-slot wait BEFORE drain enumeration        — built into this script
- *           (in-flight txs submitted before the pause may
- *            still land; we wait so the snapshot is complete)
- *   Step 4: dry-run                                       — `--dry-run`
- *   Step 5: real drain                                    — `--cancel`
+ * Sequence:
+ *   Step 1: backend migration + pause flag      — done in backend
+ *   Step 2: flip is_redemption_paused = TRUE    — operator runs
+ *   Step 3: this script (3a: dry-run)
+ *   Step 3b: 32-slot wait BEFORE drain enumeration — built in
+ *           (in-flight txs submitted before the pause may still
+ *            land; we wait so the snapshot is complete)
+ *   Step 4: dry-run                             — `--dry-run`
+ *   Step 5: real drain                          — `--cancel`
  *   Step 6: re-verify zero pending PDAs remain
  *
  * Usage:
@@ -38,10 +39,10 @@
  *   ANCHOR_WALLET          — operator keypair path (defaults to ~/.config/solana/id.json)
  *
  * Cancellation note: `cancel_redeem` requires the INVESTOR as a signer
- * (not the operator). This script in `--cancel` mode will surface the per-PDA
- * details so a follow-up flow can either (a) coordinate investors to self-cancel
- * via the frontend before pause window closes, or (b) admin-freeze + manually
- * close — see plan spec lines 240-241 and the bundled-upgrade runbook.
+ * (not the operator). In `--cancel` mode this script surfaces per-PDA
+ * details so a follow-up flow can either (a) coordinate investors to
+ * self-cancel via the frontend before pause window closes, or
+ * (b) admin-freeze + manually close — see the bundled-upgrade runbook.
  */
 
 import * as anchor from "@coral-xyz/anchor";
@@ -122,7 +123,7 @@ function loadKeypair(filePath: string): Keypair {
   return Keypair.fromSecretKey(Uint8Array.from(raw));
 }
 
-// ─── 32-slot mempool buffer (V3.D audit) ────────────────────────────────────
+// ─── 32-slot mempool buffer ─────────────────────────────────────────────────
 
 /**
  * Wait 32 slots (~13 sec at 400ms slot time) for in-flight redeem txs
@@ -161,14 +162,14 @@ async function main() {
   const args = parseArgs();
 
   console.log("\n" + "=".repeat(70));
-  console.log("  Drain RedemptionRequest PDAs (Plan C Task 1, P0.E)");
+  console.log("  Drain RedemptionRequest PDAs");
   console.log("=".repeat(70) + "\n");
 
-  // V3.D ordering check — this script is meaningless if backend pause is not set.
+  // Ordering check — this script is meaningless if backend pause is not set.
   console.log(
     "  PRECONDITION: pools.is_redemption_paused MUST already be TRUE\n" +
       "  for this pool. This script does NOT verify the backend state — that\n" +
-      "  belongs in the bundled-upgrade runbook checklist (Plan C Task 14\n" +
+      "  belongs in the bundled-upgrade runbook checklist\n" +
       "  Step 0).\n",
   );
 
@@ -226,9 +227,9 @@ async function main() {
   idl.address = programId.toBase58();
   const program = new Program(idl, provider);
 
-  // Step 3b: V3.D — 32-slot mempool buffer wait BEFORE enumeration.
+  // Step 3b: 32-slot mempool buffer wait BEFORE enumeration.
   if (!args.skipSlotWait) {
-    console.log("Step 3b: 32-slot mempool buffer (V3.D audit)");
+    console.log("Step 3b: 32-slot mempool buffer");
     console.log("-".repeat(70));
     await waitForMempoolBuffer(connection, 32);
   } else {
@@ -325,13 +326,13 @@ async function main() {
   if (pendingCount > 0) {
     console.log(
       "\n  Next step: coordinate cancellation with affected investors before\n" +
-        "  the bundled SVS-11 upgrade runs (Plan C Task 14). Each pending PDA\n" +
+        "  the bundled SVS-11 upgrade runs. Each pending PDA\n" +
         "  in the OLD layout will fail Anchor deserialization post-upgrade.",
     );
   } else {
     console.log(
       "\n  No pending PDAs. Safe to proceed to the bundled SVS-11 upgrade\n" +
-        "  (Plan C Task 14) once the rest of the pre-flight checklist is green.",
+        "  once the rest of the pre-flight checklist is green.",
     );
   }
 

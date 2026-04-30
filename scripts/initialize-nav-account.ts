@@ -1,23 +1,23 @@
 /**
- * Initialize NavAccount Script (Plan B Task 13 Step 1)
+ * Initialize NavAccount Script.
  *
  * Creates a per-pool NavAccount PDA in the deployed nav-oracle program.
  * This is the on-chain anchor for monthly + event-driven NAV publishes
- * from the credit-model publisher (Plan B Tasks 10-12).
+ * from the credit-model publisher.
  *
  * Pre-conditions:
  *   * nav-oracle program is deployed (devnet 2026-04-29 at
  *     7564bvScA3FjQ9w5nCx44EK4JkgitzZ3UstX1e4eKks7)
- *   * The target pool's CreditVault PDA exists on-chain (SVS-11 init_pool
- *     must have run for this pool already; without it the PDA seed
- *     derivation works but downstream SVS-11 reads will fail)
+ *   * The target pool's CreditVault PDA exists on-chain (SVS-11
+ *     init_pool must have run for this pool already; without it the
+ *     PDA seed derivation works but downstream SVS-11 reads will fail)
  *   * The publisher keypair (separate from operator) is generated and
  *     persisted somewhere safe (e.g. ~/.config/credit-markets/devnet-publisher.json)
  *   * The rotation authority is decided — for production this is the
- *     Protocol Guardian Squads vault (Plan A Task 2). For pre-Squads-vault
- *     devnet testing, you can pass the operator pubkey as a temporary
- *     placeholder and rotate later via `rotate_publisher` once the vault
- *     is deployed.
+ *     Protocol Guardian Squads vault. For pre-Squads-vault devnet
+ *     testing, you can pass the operator pubkey as a temporary
+ *     placeholder and rotate later via `rotate_publisher` once the
+ *     vault is deployed.
  *
  * Usage:
  *   npx ts-node scripts/initialize-nav-account.ts \
@@ -31,9 +31,9 @@
  *   ANCHOR_WALLET          — operator keypair path (defaults to
  *                            ~/.config/solana/id.json)
  *
- * After this runs, the NavAccount PDA is empty (sequence=0, all fields zero
- * except pool/publisher/rotation_authority). The first NAV publish from the
- * credit-model publisher (Plan B Task 13 Step 2) writes real values.
+ * After this runs, the NavAccount PDA is empty (sequence=0, all fields
+ * zero except pool/publisher/rotation_authority). The first NAV publish
+ * from the credit-model publisher writes real values.
  */
 
 import {
@@ -195,7 +195,7 @@ async function main() {
     programId,
   );
 
-  console.log(`\n=== Plan B Task 13 Step 1: Initialize NavAccount ===`);
+  console.log(`\n=== Initialize NavAccount ===`);
   console.log(`Cluster:             ${args.cluster}`);
   console.log(`Pool:                ${pool.toBase58()}`);
   console.log(`Publisher:           ${publisher.toBase58()}`);
@@ -262,7 +262,7 @@ async function main() {
     `   explorer:     https://explorer.solana.com/address/${navAccountPda.toBase58()}?cluster=${args.cluster}\n`,
   );
 
-  console.log(`Next: Plan B Task 13 Step 2 — run credit-model monthly_cron`);
+  console.log(`Next: run credit-model monthly_cron`);
   console.log(`with this NavAccount PDA to land sequence=1.\n`);
 }
 

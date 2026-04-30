@@ -97,8 +97,8 @@ pub fn handler(ctx: Context<Unwrap>, amount: u64) -> Result<()> {
     //    compliance-hook::execute::check_attestation (programs/compliance-hook/
     //    src/instructions/execute.rs:163-206) AND svs-11's Attestation struct
     //    layout. Total account size: 8 (Anchor discriminator) + 121 (payload)
-    //    = 129 bytes. Plan A Task 8 corrected the layout post-Task-8 implementer
-    //    review — these offsets MUST stay in sync with that source of truth.
+    //    = 129 bytes. These offsets MUST stay in sync with the
+    //    check_attestation source of truth.
     //
     //    Offset map (after the 8-byte discriminator, so payload[i] = data[i+8]):
     //       0..32    subject (Pubkey)

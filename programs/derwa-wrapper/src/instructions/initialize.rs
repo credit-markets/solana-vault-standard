@@ -6,18 +6,19 @@ use crate::state::WrapperConfig;
 /// Bind a pool to its (cPOOL, dePOOL) mint pair.
 ///
 /// Pre-conditions (enforced by the broader system, not by this ix):
-///   1. The cPOOL mint exists with ComplianceHook in Permissioned mode
-///      (created in Plan C Task 3 inside `initialize_pool`).
-///   2. The dePOOL mint exists with ComplianceHook in FreelyTransferable mode
-///      (created in Plan C Task 5b's `create-derwa-mint.ts` script). Note that
-///      Task 5b currently DEFERS MintConfig + ExtraAccountMetaList init to the
-///      Plan C Task 14 deployment runbook — see the script's KNOWN GAP header.
-///   3. The dePOOL mint authority is the `wrapper_signer` PDA (set by Task 5b).
+///   1. The cPOOL mint exists with ComplianceHook in Permissioned mode,
+///      created inside `initialize_pool`.
+///   2. The dePOOL mint exists with ComplianceHook in FreelyTransferable
+///      mode, created by `scripts/create-derwa-mint.ts`. That script
+///      currently DEFERS MintConfig + ExtraAccountMetaList init to the
+///      deployment runbook — see the script's KNOWN GAP header.
+///   3. The dePOOL mint authority is the `wrapper_signer` PDA (set by
+///      the create-derwa-mint script).
 ///
-/// Anchor doesn't reach into the mint extensions to validate (1) and (2) here
-/// — the cross-plan invariant is enforced at the binding sites (Task 3 for
-/// cPOOL, Task 5b for dePOOL). This handler just records the binding so
-/// `wrap` and `unwrap` can dispatch against the correct mints.
+/// Anchor doesn't reach into the mint extensions to validate (1) and (2)
+/// here — the invariant is enforced at the binding sites. This handler
+/// just records the binding so `wrap` and `unwrap` can dispatch against
+/// the correct mints.
 #[derive(Accounts)]
 pub struct InitializeWrapper<'info> {
     /// CHECK: pool's CreditVault PDA. Stored verbatim into `WrapperConfig.pool`.

@@ -126,18 +126,18 @@ pub fn handler(
     let shares_mint_bump = ctx.bumps.shares_mint;
     let redemption_escrow_bump = ctx.bumps.redemption_escrow;
 
-    // Plan C Task 3 / Step 3b — cPOOL mint MUST allocate space for the
-    // TransferHook extension. Pass `&[ExtensionType::TransferHook]` so the
-    // mint account is large enough for both the base Mint state AND the
-    // hook extension TLV. Without the extension in this calc, the mint
-    // would later fail to add the extension during initialize_transfer_hook.
+    // The cPOOL mint MUST allocate space for the TransferHook extension.
+    // Pass `&[ExtensionType::TransferHook]` so the mint account is large
+    // enough for both the base Mint state AND the hook extension TLV.
+    // Without the extension in this calc, the mint would later fail to
+    // add the extension during initialize_transfer_hook.
     let mint_size = ExtensionType::try_calculate_account_len::<spl_token_2022::state::Mint>(
         &[ExtensionType::TransferHook],
     )
     .map_err(|_| VaultError::MathOverflow)?;
 
-    // Plan C Task 3 / Step 3b — Token-2022 requires the redemption_escrow
-    // account to be sized for `TransferHookAccount` because its mint
+    // Token-2022 requires the redemption_escrow account to be sized
+    // for `TransferHookAccount` because its mint
     // (cPOOL shares_mint) carries the `TransferHook` extension. The
     // SPL-Token-2022 spec maps every mint extension to an
     // `Initialize{Account,Mint}` requirement; for TransferHook the
@@ -201,37 +201,36 @@ pub fn handler(
         &[shares_mint_seeds],
     )?;
 
-    // Plan C Task 3 / Step 3b — bind the TransferHook extension BEFORE
-    // initializing the mint. Token-2022 requires extension init in this
-    // order: create account → init extensions → init base mint state.
+    // Bind the TransferHook extension BEFORE initializing the mint.
+    // Token-2022 requires extension init in this order: create account
+    // → init extensions → init base mint state.
     //
-    // The hook authority is set to the pool admin (`authority`) for P0 so
-    // initial-deploy hot-fix flexibility is preserved. Plan A Task 14
-    // rotates this authority to the Ops Guardian Squads vault as part of
-    // the bundled SVS-11 upgrade roll-forward.
+    // The hook authority is set to the pool admin (`authority`) at
+    // first deploy so hot-fix flexibility is preserved. The deployment
+    // runbook rotates this authority to the Ops Guardian Squads vault.
     //
-    // CROSS-PLAN INVARIANT (V2.3 audit closure): the cPOOL mint now points
-    // at COMPLIANCE_HOOK_PROGRAM_ID, but the dependent PDAs that
+    // CROSS-PROGRAM INVARIANT: the cPOOL mint now points at
+    // COMPLIANCE_HOOK_PROGRAM_ID, but the dependent PDAs that
     // compliance-hook expects (per-mint `MintConfig` and per-mint
     // `ExtraAccountMetaList`) are NOT initialized here. They MUST be
-    // initialized in a follow-up tx by the deployment runbook (Plan C
-    // Task 14 Step 8) — the runbook calls compliance-hook directly so
-    // signer-privilege escalation and PDA-derivation-program-mismatch
-    // problems do not arise.
+    // initialized in a follow-up tx by the deployment runbook — the
+    // runbook calls compliance-hook directly so signer-privilege
+    // escalation and PDA-derivation-program-mismatch problems do not
+    // arise.
     //
-    // ARCHITECTURE NOTE: Earlier drafts of Step 3b put MintConfig + EAML
-    // initialization inline here via either CPI to compliance-hook or
-    // direct system_program::create_account calls from svs-11. Both fail:
+    // ARCHITECTURE NOTE: Earlier drafts put MintConfig + EAML init
+    // inline here via either CPI to compliance-hook or direct
+    // system_program::create_account calls from svs-11. Both fail:
     //   - CPI into a handler that uses Anchor `init` on a cross-program
-    //     PDA triggers "signer privilege escalated" because the PDA must
-    //     be marked signer in the inner ix accounts list, but svs-11
-    //     can't sign for it (different program ID).
+    //     PDA triggers "signer privilege escalated" because the PDA
+    //     must be marked signer in the inner ix accounts list, but
+    //     svs-11 can't sign for it (different program ID).
     //   - Direct create_account from svs-11 with a PDA owned by
-    //     compliance-hook fails because invoke_signed seeds derive against
-    //     svs-11's program ID, not the owning program's.
-    // Compliance-hook's own ix is the only path. Plan A Task 9b's runtime
-    // guard — "fail loud if init_extra_account_meta_list isn't called for
-    // cPOOL" — catches the case where the runbook step is skipped.
+    //     compliance-hook fails because invoke_signed seeds derive
+    //     against svs-11's program ID, not the owning program's.
+    // Compliance-hook's own ix is the only path. The runtime guard in
+    // `initialize_extra_account_meta_list` — "fail loud if not called
+    // for cPOOL" — catches the case where the runbook step is skipped.
     invoke(
         &initialize_transfer_hook(
             &ctx.accounts.token_2022_program.key(),
@@ -317,15 +316,16 @@ pub fn handler(
     vault.required_attestation_type = 0;
     vault._reserved = [0u8; 23];
 
-    // Plan B Task 6 / audit P0.C — NavOracle integration defaults.
+    // NavOracle integration defaults.
     //
-    // `oracle_source` defaults to ORACLE_SOURCE_MOCK (0) so newly-initialized
-    // pools start on the legacy mock_oracle path that existing fixtures and
-    // pre-Plan-B tooling already exercise. The bundled SVS-11 upgrade in
-    // Plan C Task 14 flips existing pools to ORACLE_SOURCE_NAV_ORACLE (1)
-    // via `set_oracle_source` after the realloc + smoke-test. Operators that
-    // want Plan B from inception can call `set_oracle_source(1)` immediately
-    // after this instruction completes.
+    // `oracle_source` defaults to ORACLE_SOURCE_MOCK (0) so
+    // newly-initialized pools start on the legacy mock_oracle path that
+    // existing fixtures and tooling already exercise. The bundled
+    // SVS-11 upgrade flips existing pools to ORACLE_SOURCE_NAV_ORACLE
+    // (1) via `set_oracle_source` after the realloc + smoke-test.
+    // Operators that want the real oracle from inception can call
+    // `set_oracle_source(1)` immediately after this instruction
+    // completes.
     vault.last_seen_nav_sequence = 0;
     vault.last_seen_nav_price = 0;
     vault.max_nav_staleness_secs = crate::constants::DEFAULT_MAX_NAV_STALENESS_SECS;
@@ -335,7 +335,7 @@ pub fn handler(
     msg!(
         "initialize_pool COMPLETE | shares_mint={} hook={} | NEXT STEP (deployment runbook): \
          init MintConfig + EAML + infrastructure attestations via compliance-hook + mock-sas \
-         direct txs (Plan C Task 3 Step 3b architecture handoff)",
+         direct txs (cross-program PDA architecture handoff)",
         ctx.accounts.shares_mint.key(),
         COMPLIANCE_HOOK_PROGRAM_ID,
     );

@@ -57,19 +57,19 @@ pub struct CreditVault {
     pub _reserved: [u8; 23],
 
     // =========================================================================
-    // Plan B Task 6 / audit P0.C — NavOracle integration fields (+32 bytes)
+    // NavOracle integration fields (+32 bytes)
     // =========================================================================
     //
     // These four fields (plus 7 bytes of padding) extend `CreditVault` so
-    // SVS-11 can read the canonical nav-oracle program (Plan B) instead of
-    // the legacy mock_oracle, while keeping the mock_oracle path reachable
-    // via `oracle_source = 0` as an emergency-revert safety hatch (P0.G).
+    // SVS-11 can read the canonical nav-oracle program instead of the
+    // legacy mock_oracle, while keeping the mock_oracle path reachable
+    // via `oracle_source = 0` as an emergency-revert safety hatch.
     //
     // Realloc forward-reference: the +32 bytes break deserialization of
-    // CreditVault accounts created before this upgrade. Plan C Task 14
-    // Step 1b ships `realloc_credit_vault_for_oracle_v2` to migrate all
-    // existing PDAs on devnet (zero-init = sequence 0, price 0, staleness
-    // 45d, source 0).
+    // CreditVault accounts created before this upgrade. The bundled
+    // SVS-11 upgrade ships `realloc_credit_vault_for_oracle_v2` to
+    // migrate all existing PDAs on devnet (zero-init = sequence 0,
+    // price 0, staleness 45d, source 0).
     /// Last `NavAccount.sequence` the vault has consumed. Updated atomically by
     /// approve_deposit + approve_redeem after a successful NavOracle read.
     /// 0 on initialize_pool means "no sequence consumed yet".
@@ -86,22 +86,21 @@ pub struct CreditVault {
     /// than this trip `OracleStale` and block approve_deposit/approve_redeem.
     pub max_nav_staleness_secs: i64,
 
-    /// Oracle source selector (P0.G — emergency revert path).
-    ///   0 = mock_oracle (legacy mock_oracle program; pre-Plan-B baseline)
-    ///   1 = nav_oracle  (Plan B real oracle; default after bundled upgrade)
+    /// Oracle source selector — emergency revert path.
+    ///   0 = mock_oracle (legacy mock_oracle program; baseline)
+    ///   1 = nav_oracle  (real oracle; default after bundled upgrade)
     ///   2..255 = reserved → `OracleSourceInvalid`
     ///
-    /// If a NavOracle bug is discovered post-deploy, the Protocol Guardian
-    /// can flip this back to 0 via `set_oracle_source` (Plan C Task 14 ships
-    /// the instruction) WITHOUT redeploying SVS-11. Each flip is a one-tx
-    /// Squads-signed proposal — reachable in minutes vs. days for a full
-    /// upgrade.
+    /// If a NavOracle bug is discovered post-deploy, the Protocol
+    /// Guardian can flip this back to 0 via `set_oracle_source` WITHOUT
+    /// redeploying SVS-11. Each flip is a one-tx Squads-signed proposal
+    /// — reachable in minutes vs. days for a full upgrade.
     ///
-    /// Default at `initialize_pool`: 0 (legacy mock_oracle). The bundled
-    /// SVS-11 upgrade (Plan C Task 14) flips existing pools to 1 via
-    /// `set_oracle_source` after the realloc + smoke-test. New pools that
-    /// want Plan B from inception should call `set_oracle_source(1)`
-    /// immediately after `initialize_pool`.
+    /// Default at `initialize_pool`: 0 (legacy mock_oracle). The
+    /// bundled SVS-11 upgrade flips existing pools to 1 via
+    /// `set_oracle_source` after the realloc + smoke-test. New pools
+    /// that want the real oracle from inception should call
+    /// `set_oracle_source(1)` immediately after `initialize_pool`.
     pub oracle_source: u8,
 
     /// Padding so the SPACE bump is a clean multiple of 8 (alignment friendliness).
@@ -138,7 +137,7 @@ impl CreditVault {
         8 +   // total_pending_redeems
         1 +   // required_attestation_type
         23 +  // _reserved
-        // ---- Plan B Task 6 / audit P0.C: NavOracle integration (+32 bytes) ----
+        // ---- NavOracle integration (+32 bytes) ----
         8 +   // last_seen_nav_sequence
         8 +   // last_seen_nav_price
         8 +   // max_nav_staleness_secs
@@ -195,21 +194,23 @@ pub struct RedemptionRequest {
     pub bump: u8,
 
     // =========================================================================
-    // Plan C Task 3 / P0.6 — pro-rata fulfillment + auto-requeue (+24 bytes)
+    // Pro-rata fulfillment + auto-requeue (+24 bytes)
     // =========================================================================
     //
-    // These three fields support the rolling-notice settlement model where a
-    // single RedemptionRequest may be partially fulfilled across multiple
-    // settlement dates. `original_shares` snapshots the initial intent (never
-    // changes). `fulfilled_shares_cumulative` accumulates across one or more
-    // partial settlements. `queued_for_settlement_at` is auto-bumped to the
-    // next settlement epoch on partial fulfillment so the request stays in
-    // the queue without a re-request from the investor.
+    // These three fields support the rolling-notice settlement model
+    // where a single RedemptionRequest may be partially fulfilled
+    // across multiple settlement dates. `original_shares` snapshots the
+    // initial intent (never changes). `fulfilled_shares_cumulative`
+    // accumulates across one or more partial settlements.
+    // `queued_for_settlement_at` is auto-bumped to the next settlement
+    // epoch on partial fulfillment so the request stays in the queue
+    // without a re-request from the investor.
     //
-    // Realloc forward-reference: the +24 bytes break deserialization of any
-    // RedemptionRequest PDA created before this upgrade. Plan C Task 1 drains
-    // existing PDAs pre-deploy + Task 14 ships a per-pool pause flag so no new
-    // PDAs land on the old layout during the deploy window.
+    // Realloc forward-reference: the +24 bytes break deserialization of
+    // any RedemptionRequest PDA created before this upgrade. The drain
+    // script empties existing PDAs pre-deploy and a per-pool pause flag
+    // ensures no new PDAs land on the old layout during the deploy
+    // window.
     /// Snapshot of `shares_locked` at first request (never changes after creation).
     /// Used by tests + analytics to compare original intent vs fulfilled cumulative.
     pub original_shares: u64,
@@ -233,7 +234,7 @@ impl RedemptionRequest {
         8 +   // requested_at
         8 +   // fulfilled_at
         1 +   // bump
-        // ---- Plan C Task 3 / P0.6: pro-rata fulfillment fields (+24 bytes) ----
+        // ---- Pro-rata fulfillment fields (+24 bytes) ----
         8 +   // original_shares
         8 +   // queued_for_settlement_at
         8;    // fulfilled_shares_cumulative

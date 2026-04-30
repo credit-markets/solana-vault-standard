@@ -144,13 +144,13 @@ pub fn handler(
     request.fulfilled_at = 0;
     request.bump = ctx.bumps.redemption_request;
 
-    // Plan C Task 3 / P0.6 — pro-rata fulfillment + auto-requeue defaults.
-    // `original_shares` snapshots the initial intent and is never mutated
-    // after creation; consumers can compare `original_shares` vs
+    // Pro-rata fulfillment + auto-requeue defaults.
+    // `original_shares` snapshots the initial intent and is never
+    // mutated after creation; consumers compare `original_shares` vs
     // `fulfilled_shares_cumulative` to display per-investor settlement
-    // progress. `queued_for_settlement_at` is computed off-chain by the
-    // backend's redemption-scheduler service (Plan C Task 11) and passed in
-    // here. `fulfilled_shares_cumulative` starts at 0; `approve_redeem`
+    // progress. `queued_for_settlement_at` is computed off-chain by
+    // the backend's redemption-scheduler service and passed in here.
+    // `fulfilled_shares_cumulative` starts at 0; `approve_redeem`
     // accumulates across one or more partial-fulfillment calls.
     request.original_shares = shares;
     request.queued_for_settlement_at = queued_for_settlement_at;

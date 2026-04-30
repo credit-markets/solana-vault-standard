@@ -14,9 +14,9 @@ declare_id!("6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P");
 pub mod compliance_hook {
     use super::*;
 
-    /// Initialize the global `SanctionsList` PDA. Called once per program
-    /// deployment; the `authority` set here gates all future updates and
-    /// will be the Ops Guardian Squads vault per Plan A Task 14.
+    /// Initialize the global `SanctionsList` PDA. Called once per
+    /// program deployment; the `authority` set here gates all future
+    /// updates. Production: rotated to the Ops Guardian Squads vault.
     pub fn initialize_sanctions_list(ctx: Context<InitializeSanctionsList>) -> Result<()> {
         instructions::initialize_sanctions_list::handler(ctx)
     }

@@ -66,8 +66,8 @@ pub struct ApproveRedeem<'info> {
     #[account(constraint = asset_mint.key() == vault.asset_mint)]
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
 
-    /// Plan C Task 3 / P0.6 — `init_if_needed` so partial-fulfillment retries
-    /// don't fail re-init on the second approve_redeem for the same request.
+    /// `init_if_needed` so partial-fulfillment retries don't fail
+    /// re-init on the second approve_redeem for the same request.
     /// First call creates the PDA; subsequent calls top up via the
     /// transfer_checked below. claim_redeem closes it on terminal claim.
     #[account(
@@ -85,21 +85,21 @@ pub struct ApproveRedeem<'info> {
     /// branch via `read_and_validate_oracle`. Field is `nav_oracle` for
     /// backwards-compat with existing IDL clients (the underlying account
     /// has always been the mock oracle); semantically this slot holds the
-    /// "mock_oracle_account" per Plan B Task 6.
+    /// "mock_oracle_account".
     pub nav_oracle: UncheckedAccount<'info>,
 
-    /// CHECK: NavAccount PDA from the nav-oracle program (Plan B). Read in
-    /// the `oracle_source == 1` branch via `read_nav_oracle_price`.
+    /// CHECK: NavAccount PDA from the nav-oracle program. Read in the
+    /// `oracle_source == 1` branch via `read_nav_oracle_price`.
     ///
-    /// IMPORTANT (audit V1.B / P1.B): we INTENTIONALLY OMIT the
+    /// IMPORTANT: we INTENTIONALLY OMIT the
     /// `seeds = [NAV_ORACLE_SEED, vault.key().as_ref()]` + `bump` +
-    /// `seeds::program = NAV_ORACLE_PROGRAM_ID` constraints here. Anchor
-    /// validates seed constraints at deserialization time, BEFORE the
-    /// handler runs. With seeds enforced, the emergency-revert path
-    /// (`oracle_source == 0` + caller passes a dummy account because they
-    /// don't have a real NavAccount yet) FAILS at pre-handler validation,
-    /// defeating the entire P0.G design. See approve_deposit for full
-    /// rationale.
+    /// `seeds::program = NAV_ORACLE_PROGRAM_ID` constraints here.
+    /// Anchor validates seed constraints at deserialization time,
+    /// BEFORE the handler runs. With seeds enforced, the
+    /// emergency-revert path (`oracle_source == 0` + caller passes a
+    /// dummy account because they don't have a real NavAccount yet)
+    /// FAILS at pre-handler validation, defeating the entire
+    /// emergency-revert design. See approve_deposit for full rationale.
     ///
     /// We MANUALLY validate the PDA derivation + program ownership inside
     /// the handler when `oracle_source == 1` (see branch below).
@@ -137,10 +137,10 @@ pub fn handler(
         VaultError::AccountFrozen
     );
 
-    // Plan C Task 3 / P0.6 — guard against malformed ratios. 0 ⇒ nothing to
-    // fulfill (caller should reject_redeem instead). > 1e18 ⇒ would over-burn
-    // the remaining shares; cap at 1e18 so a buggy backend doesn't bypass the
-    // remaining-shares math.
+    // Guard against malformed ratios. 0 ⇒ nothing to fulfill (caller
+    // should reject_redeem instead). > 1e18 ⇒ would over-burn the
+    // remaining shares; cap at 1e18 so a buggy backend doesn't bypass
+    // the remaining-shares math.
     require!(
         batch_settlement_ratio_scaled > 0
             && batch_settlement_ratio_scaled <= RATIO_SCALE_1E18,
@@ -162,10 +162,10 @@ pub fn handler(
         &ctx.accounts.clock,
     )?;
 
-    // Read NAV via the configured oracle source (P0.G emergency-revert
-    // toggle). See approve_deposit for the full rationale on the audit
-    // P1.B design (no seeds constraint on nav_account; manual PDA check in
-    // the nav-oracle branch).
+    // Read NAV via the configured oracle source (emergency-revert
+    // toggle). See approve_deposit for the rationale on the no-seeds
+    // constraint on nav_account; manual PDA check happens in the
+    // nav-oracle branch.
     let oracle_read: OraclePrice = match ctx.accounts.vault.oracle_source {
         ORACLE_SOURCE_NAV_ORACLE => {
             let credit_vault_key = ctx.accounts.vault.key();
@@ -234,7 +234,7 @@ pub fn handler(
             .map_err(|_| VaultError::OracleDeviationExceeded)?;
     }
 
-    // Plan C Task 3 / P0.6 — compute the pro-rata cut for THIS settlement.
+    // Compute the pro-rata cut for THIS settlement.
     //
     // `remaining` = shares not yet fulfilled across prior partial settlements
     // (or the full `shares_locked` on the first call). `fulfill` is the
@@ -326,7 +326,7 @@ pub fn handler(
         ctx.accounts.asset_mint.decimals,
     )?;
 
-    // Plan C Task 3 / P0.6 — accumulate fulfilled shares + branch on
+    // Accumulate fulfilled shares + branch on
     // full vs partial fulfillment.
     //
     // Full fulfillment: cumulative reaches/exceeds shares_locked → status

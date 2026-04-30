@@ -67,7 +67,7 @@ pub struct RedemptionApproved {
     pub assets: u64,
     /// NAV used for this settlement.
     pub nav: u64,
-    /// Plan C Task 3 — fixed-point batch settlement ratio scaled to 1e18.
+    /// Fixed-point batch settlement ratio scaled to 1e18.
     pub ratio_scaled: u128,
     /// Cumulative shares fulfilled across all settlements for this request.
     pub cumulative_fulfilled: u64,
