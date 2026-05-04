@@ -57,19 +57,16 @@ pub struct CreditVault {
     pub _reserved: [u8; 23],
 
     // =========================================================================
-    // NavOracle integration fields (+32 bytes)
+    // Oracle extensibility fields
     // =========================================================================
     //
-    // These four fields (plus 7 bytes of padding) extend `CreditVault` so
-    // SVS-11 can read the canonical nav-oracle program instead of the
-    // legacy mock_oracle, while keeping the mock_oracle path reachable
-    // via `oracle_source = 0` as an emergency-revert safety hatch.
-    //
-    // Realloc forward-reference: the +32 bytes break deserialization of
-    // CreditVault accounts created before this upgrade. The bundled
-    // SVS-11 upgrade ships `realloc_credit_vault_for_oracle_v2` to
-    // migrate all existing PDAs on devnet (zero-init = sequence 0,
-    // price 0, staleness 45d, source 0).
+    // SVS-11 keeps the simple oracle path as the neutral upstream default.
+    // Deployments that need richer credit-market NAV semantics can opt into
+    // the NavOracle adapter via `oracle_source = 1`. This is bounded
+    // extensibility (simple oracle + known NavOracle add-on), not an
+    // arbitrary plugin registry. INA Credit Markets uses that richer adapter
+    // as deployment policy, not as a requirement imposed on every upstream
+    // SVS-11 user.
     /// Last `NavAccount.sequence` the vault has consumed. Updated atomically by
     /// approve_deposit + approve_redeem after a successful NavOracle read.
     /// 0 on initialize_pool means "no sequence consumed yet".
@@ -86,21 +83,14 @@ pub struct CreditVault {
     /// than this trip `OracleStale` and block approve_deposit/approve_redeem.
     pub max_nav_staleness_secs: i64,
 
-    /// Oracle source selector — emergency revert path.
-    ///   0 = mock_oracle (legacy mock_oracle program; baseline)
-    ///   1 = nav_oracle  (real oracle; default after bundled upgrade)
+    /// Oracle source selector.
+    ///   0 = simple/mock oracle path (neutral upstream default)
+    ///   1 = nav_oracle adapter (optional rich credit-market NAV path)
     ///   2..255 = reserved → `OracleSourceInvalid`
     ///
-    /// If a NavOracle bug is discovered post-deploy, the Protocol
-    /// Guardian can flip this back to 0 via `set_oracle_source` WITHOUT
-    /// redeploying SVS-11. Each flip is a one-tx Squads-signed proposal
-    /// — reachable in minutes vs. days for a full upgrade.
-    ///
-    /// Default at `initialize_pool`: 0 (legacy mock_oracle). The
-    /// bundled SVS-11 upgrade flips existing pools to 1 via
-    /// `set_oracle_source` after the realloc + smoke-test. New pools
-    /// that want the real oracle from inception should call
-    /// `set_oracle_source(1)` immediately after `initialize_pool`.
+    /// `initialize_pool` sets this to 0. Deployments that require rich NAV
+    /// semantics call `set_oracle_source(1)` after initializing and publishing
+    /// the pool's NavAccount.
     pub oracle_source: u8,
 
     /// Padding so the SPACE bump is a clean multiple of 8 (alignment friendliness).

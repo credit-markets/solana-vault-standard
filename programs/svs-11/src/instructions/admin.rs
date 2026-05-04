@@ -324,10 +324,11 @@ pub fn update_oracle_params_handler(
     Ok(())
 }
 
-/// Switch the vault's NAV read path between legacy mock-oracle (`0`) and
-/// canonical nav-oracle (`1`). This is deliberately separate from oracle
-/// address changes: it does not mutate `nav_oracle` or `oracle_program`, so
-/// it can serve as the fast emergency revert toggle after the bundled upgrade.
+/// Switch the vault's oracle read path between the simple/mock oracle path
+/// (`0`) and the optional NavOracle adapter (`1`). This is deliberately
+/// separate from oracle address changes: it does not mutate `nav_oracle` or
+/// `oracle_program`, so deployments can opt into or out of richer NAV reads
+/// without a full program upgrade.
 pub fn set_oracle_source_handler(ctx: Context<UpdateOracleParams>, source: u8) -> Result<()> {
     require!(
         source == ORACLE_SOURCE_MOCK || source == ORACLE_SOURCE_NAV_ORACLE,

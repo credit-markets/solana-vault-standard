@@ -130,8 +130,10 @@ pub mod svs_11 {
         instructions::compliance::unfreeze_handler(ctx)
     }
 
-    /// Switch CreditVault oracle source: 0 = legacy mock_oracle,
-    /// 1 = canonical nav_oracle. Authority-gated emergency revert toggle.
+    /// Switch CreditVault oracle read path between the simple/mock oracle
+    /// (0, neutral upstream default) and the optional NavOracle adapter (1,
+    /// rich credit-market NAV). Authority-gated; does not mutate `nav_oracle`
+    /// or `oracle_program`.
     pub fn set_oracle_source(ctx: Context<UpdateOracleParams>, source: u8) -> Result<()> {
         instructions::admin::set_oracle_source_handler(ctx, source)
     }

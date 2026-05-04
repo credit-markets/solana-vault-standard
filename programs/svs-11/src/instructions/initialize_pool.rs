@@ -318,14 +318,10 @@ pub fn handler(
 
     // NavOracle integration defaults.
     //
-    // `oracle_source` defaults to ORACLE_SOURCE_MOCK (0) so
-    // newly-initialized pools start on the legacy mock_oracle path that
-    // existing fixtures and tooling already exercise. The bundled
-    // SVS-11 upgrade flips existing pools to ORACLE_SOURCE_NAV_ORACLE
-    // (1) via `set_oracle_source` after the realloc + smoke-test.
-    // Operators that want the real oracle from inception can call
-    // `set_oracle_source(1)` immediately after this instruction
-    // completes.
+    // Upstream SVS-11 keeps the simple/mock oracle path as the neutral
+    // default. Deployments that need rich credit-market NAV semantics
+    // initialize + publish a NavAccount, then call `set_oracle_source(1)`
+    // before opening the investment window.
     vault.last_seen_nav_sequence = 0;
     vault.last_seen_nav_price = 0;
     vault.max_nav_staleness_secs = crate::constants::DEFAULT_MAX_NAV_STALENESS_SECS;
@@ -334,8 +330,8 @@ pub fn handler(
 
     msg!(
         "initialize_pool COMPLETE | shares_mint={} hook={} | NEXT STEP (deployment runbook): \
-         init MintConfig + EAML + infrastructure attestations via compliance-hook + mock-sas \
-         direct txs (cross-program PDA architecture handoff)",
+         init MintConfig + EAML + infrastructure attestations. Rich NAV deployments \
+         must initialize + publish NavAccount, then set_oracle_source(1)",
         ctx.accounts.shares_mint.key(),
         COMPLIANCE_HOOK_PROGRAM_ID,
     );
