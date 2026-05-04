@@ -15,12 +15,17 @@ import {
   PublicKey,
   SystemProgram,
   SYSVAR_CLOCK_PUBKEY,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
   SYSVAR_RENT_PUBKEY,
+  Ed25519Program,
+  Transaction,
 } from "@solana/web3.js";
+import * as nacl from "tweetnacl";
 import { expect } from "chai";
 import { Svs11 } from "../target/types/svs_11";
 import { MockOracle } from "../target/types/mock_oracle";
 import { MockSas as MockAttestation } from "../target/types/mock_sas";
+import { NavOracle } from "../target/types/nav_oracle";
 import {
   getCreditVaultAddress,
   getCreditSharesMintAddress,
@@ -51,6 +56,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
 
   const program = anchor.workspace.Svs11 as Program<Svs11>;
   const oracleProgram = anchor.workspace.MockOracle as Program<MockOracle>;
+  const navOracleProgram = anchor.workspace.NavOracle as Program<NavOracle>;
   const attestationMockProgram = anchor.workspace
     .MockSas as Program<MockAttestation>;
   const connection = provider.connection;
@@ -68,7 +74,10 @@ describe("svs-11 (Credit Markets Vault)", () => {
   let sharesMint: PublicKey;
   let depositVault: PublicKey;
   let redemptionEscrow: PublicKey;
-  let navOracle: PublicKey;
+  let mockOracleData: PublicKey;
+  let navAccount!: PublicKey;
+  let navPublisher!: Keypair;
+  let navSequence = 0n;
   let investorTokenAccount: PublicKey;
   let investorSharesAccount: PublicKey;
   let investmentRequest: PublicKey;
@@ -119,6 +128,13 @@ describe("svs-11 (Credit Markets Vault)", () => {
     );
   };
 
+  const getNavAccountPDA = (vaultPda: PublicKey): [PublicKey, number] => {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("nav_oracle"), vaultPda.toBuffer()],
+      navOracleProgram.programId,
+    );
+  };
+
   const getAttestationPDA = (
     subject: PublicKey,
     issuer: PublicKey,
@@ -134,6 +150,94 @@ describe("svs-11 (Credit Markets Vault)", () => {
       ATTESTATION_PROGRAM_ID,
     );
   };
+
+  function buildNavSigningPayload(fields: {
+    pool: PublicKey;
+    navNet: bigint;
+    navGross: bigint;
+    terBps: number;
+    lossBps: number;
+    navType: number;
+    timestamp: bigint;
+    sequence: bigint;
+    publisher: PublicKey;
+    merkleRoot: Buffer;
+  }): Buffer {
+    const buf = Buffer.alloc(133);
+    let off = 0;
+    fields.pool.toBuffer().copy(buf, off);
+    off += 32;
+    buf.writeBigUInt64LE(fields.navNet, off);
+    off += 8;
+    buf.writeBigUInt64LE(fields.navGross, off);
+    off += 8;
+    buf.writeUInt16LE(fields.terBps, off);
+    off += 2;
+    buf.writeUInt16LE(fields.lossBps, off);
+    off += 2;
+    buf.writeUInt8(fields.navType, off);
+    off += 1;
+    buf.writeBigInt64LE(fields.timestamp, off);
+    off += 8;
+    buf.writeBigUInt64LE(fields.sequence, off);
+    off += 8;
+    fields.publisher.toBuffer().copy(buf, off);
+    off += 32;
+    fields.merkleRoot.copy(buf, off);
+    off += 32;
+    return buf.subarray(0, off);
+  }
+
+  async function publishNav(price: BN = PRICE_SCALE): Promise<void> {
+    navSequence += 1n;
+    const merkleRoot = Buffer.alloc(32, Number(navSequence % 255n));
+    const navNet = BigInt(price.toString());
+    const navGross = navNet;
+    const terBps = 0;
+    const lossBps = 0;
+    const timestamp = BigInt(Math.floor(Date.now() / 1000));
+
+    const payload = buildNavSigningPayload({
+      pool: vault,
+      navNet,
+      navGross,
+      terBps,
+      lossBps,
+      navType: 0,
+      timestamp,
+      sequence: navSequence,
+      publisher: navPublisher.publicKey,
+      merkleRoot,
+    });
+    const signature = nacl.sign.detached(payload, navPublisher.secretKey);
+
+    const ed25519Ix = Ed25519Program.createInstructionWithPublicKey({
+      publicKey: navPublisher.publicKey.toBytes(),
+      message: payload,
+      signature,
+    });
+    const updateIx = await navOracleProgram.methods
+      .update({
+        navNet: new BN(navNet.toString()),
+        navGross: new BN(navGross.toString()),
+        terBps,
+        lossBps,
+        navType: 0,
+        timestamp: new BN(timestamp.toString()),
+        sequence: new BN(navSequence.toString()),
+        loanTapeMerkleRoot: Array.from(merkleRoot),
+        signature: Array.from(signature),
+      })
+      .accountsPartial({
+        pool: vault,
+        navAccount,
+        instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+      })
+      .instruction();
+
+    const tx = new Transaction().add(ed25519Ix).add(updateIx);
+    await provider.sendAndConfirm(tx, []);
+  }
 
   before(async () => {
     manager = Keypair.generate();
@@ -170,7 +274,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
     [vault] = getVaultPDA();
     [sharesMint] = getSharesMintPDA();
     [redemptionEscrow] = getRedemptionEscrowPDA();
-    [navOracle] = getOracleDataPDA(vault);
+    [mockOracleData] = getOracleDataPDA(vault);
     [investmentRequest] = getInvestmentRequestPDA(investor.publicKey);
     [redemptionRequest] = getRedemptionRequestPDA(investor.publicKey);
     [claimableTokens] = getClaimableTokensPDA(investor.publicKey);
@@ -244,7 +348,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
       .setPrice(PRICE_SCALE)
       .accountsPartial({
         authority: payer.publicKey,
-        oracleData: navOracle,
+        oracleData: mockOracleData,
         vault: vault,
         systemProgram: SystemProgram.programId,
       })
@@ -282,7 +386,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           sharesMint,
           depositVault,
           redemptionEscrow,
-          navOracle,
+          navOracle: mockOracleData,
           oracleProgram: oracleProgram.programId,
           attester: attester.publicKey,
           attestationProgram: attestationProgramId,
@@ -305,7 +409,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
       expect(vaultAccount.sharesMint.toBase58()).to.equal(
         sharesMint.toBase58(),
       );
-      expect(vaultAccount.navOracle.toBase58()).to.equal(navOracle.toBase58());
+      expect(vaultAccount.navOracle.toBase58()).to.equal(mockOracleData.toBase58());
       expect(vaultAccount.oracleProgram.toBase58()).to.equal(
         oracleProgram.programId.toBase58(),
       );
@@ -486,7 +590,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           vault,
           investmentRequest,
           investor: investor.publicKey,
-          navOracle,
+          navOracle: mockOracleData,
           // Plan B Task 6: nav_account slot — vault default oracle_source=0
           // (mock) so this is unread; use program.programId as filler.
           navAccount: program.programId,
@@ -844,7 +948,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           claimableTokens,
-          navOracle,
+          navOracle: mockOracleData,
           navAccount: program.programId,
           attestation,
           frozenCheck: null,
@@ -933,7 +1037,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           vault,
           investmentRequest,
           investor: investor.publicKey,
-          navOracle,
+          navOracle: mockOracleData,
           navAccount: program.programId,
           attestation,
           frozenCheck: null,
@@ -1632,7 +1736,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           vault,
           investmentRequest: statusInvestmentRequest,
           investor: statusInvestor.publicKey,
-          navOracle,
+          navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: statusAttestation,
           frozenCheck: null,
@@ -1649,7 +1753,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
             vault,
             investmentRequest: statusInvestmentRequest,
             investor: statusInvestor.publicKey,
-            navOracle,
+            navOracle: mockOracleData,
             navAccount: program.programId,
             attestation: statusAttestation,
             frozenCheck: null,
@@ -1731,7 +1835,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           vault,
           investmentRequest: statusInvestmentRequest,
           investor: statusInvestor.publicKey,
-          navOracle,
+          navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: statusAttestation,
           frozenCheck: null,
@@ -1875,7 +1979,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           vault,
           investmentRequest: liqInvestmentRequest,
           investor: liqInvestor.publicKey,
-          navOracle,
+          navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: liqAttestation,
           frozenCheck: null,
@@ -1977,7 +2081,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
             depositVault,
             assetMint,
             claimableTokens: liqClaimableTokens,
-            navOracle,
+            navOracle: mockOracleData,
             navAccount: program.programId,
             attestation: liqAttestation,
             frozenCheck: null,
@@ -2107,7 +2211,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           .setPrice(expectedPrice)
           .accountsPartial({
             authority: payer.publicKey,
-            oracleData: navOracle,
+            oracleData: mockOracleData,
             vault: vault,
             systemProgram: SystemProgram.programId,
           })
@@ -2159,7 +2263,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
             vault,
             investmentRequest: frozenInvRequest,
             investor: frozenInvestor.publicKey,
-            navOracle,
+            navOracle: mockOracleData,
             navAccount: program.programId,
             attestation: frozenInvAttestation,
             frozenCheck: frozenInvFrozenAccount,
@@ -2229,7 +2333,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           vault,
           investmentRequest: frozenInvRequest,
           investor: frozenInvestor.publicKey,
-          navOracle,
+          navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: frozenInvAttestation,
           frozenCheck: null,
@@ -2307,7 +2411,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
             depositVault,
             assetMint,
             claimableTokens: frozenInvClaimableTokens,
-            navOracle,
+            navOracle: mockOracleData,
             navAccount: program.programId,
             attestation: frozenInvAttestation,
             frozenCheck: frozenInvFrozenAccount,
@@ -2475,7 +2579,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
             vault,
             investmentRequest: tempRequest,
             investor: tempInvestor.publicKey,
-            navOracle,
+            navOracle: mockOracleData,
             navAccount: program.programId,
             attestation: tempAttestation,
             frozenCheck: null,
@@ -2822,7 +2926,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
         .updateTimestamp(staleTimestamp)
         .accountsPartial({
           authority: payer.publicKey,
-          oracleData: navOracle,
+          oracleData: mockOracleData,
           vault: vault,
         })
         .rpc();
@@ -2835,7 +2939,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
             vault,
             investmentRequest: staleInvestmentRequest,
             investor: staleInvestor.publicKey,
-            navOracle,
+            navOracle: mockOracleData,
             navAccount: program.programId,
             attestation: staleAttestation,
             frozenCheck: null,
@@ -2869,7 +2973,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
         .setPrice(oraclePrice)
         .accountsPartial({
           authority: payer.publicKey,
-          oracleData: navOracle,
+          oracleData: mockOracleData,
           vault: vault,
           systemProgram: SystemProgram.programId,
         })
@@ -2882,7 +2986,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           vault,
           investmentRequest: staleInvestmentRequest,
           investor: staleInvestor.publicKey,
-          navOracle,
+          navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: staleAttestation,
           frozenCheck: null,
