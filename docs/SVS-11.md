@@ -206,7 +206,7 @@ pub fn initialize_pool(
 
 ## Oracle Integration
 
-NAV pricing uses an external oracle account. The vault reads price data directly from the oracle's account data (no CPI).
+NAV pricing uses an external oracle account. The vault reads price data directly from the oracle's account data (no CPI). The shape below describes the simple/mock oracle path (`oracle_source = 0`), which is the neutral upstream default. Deployments that need richer NAV semantics opt into the NavOracle adapter (`oracle_source = 1`) — see "Oracle Extensibility And INA NavOracle Policy" below.
 
 ```rust
 pub struct NavOracleData {
@@ -228,6 +228,21 @@ assets = shares * price_per_share / PRICE_SCALE
 ```
 
 Where `PRICE_SCALE = 1_000_000_000` (1e9).
+
+## Oracle Extensibility And INA NavOracle Policy
+
+SVS-11 keeps the simple oracle path as the neutral upstream default.
+Fresh `CreditVault` accounts include oracle-source bookkeeping fields so
+deployments can opt into richer oracle adapters without changing the core
+deposit/redeem state machine.
+
+INA Credit Markets uses the richer NavOracle adapter as deployment policy
+because private-credit NAV needs signed publisher payloads, gross/net NAV,
+TER, loss-provision basis points, sequence monotonicity, stale-NAV checks,
+and loan-tape Merkle commitments. INA pools should initialize a NavAccount,
+publish the first NAV, then call `set_oracle_source(1)` before opening the
+investment window. Generic SVS-11 deployments may remain on
+`oracle_source = 0`.
 
 ## KYC Attestation
 
