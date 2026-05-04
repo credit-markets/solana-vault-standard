@@ -9,7 +9,6 @@ pub mod compliance;
 pub mod draw_down;
 pub mod initialize_pool;
 pub mod investment_window;
-pub mod realloc_credit_vault_for_oracle_v2;
 pub mod reject_deposit;
 pub mod reject_redeem;
 pub mod repay;
@@ -41,8 +40,6 @@ pub use draw_down::*;
 pub use initialize_pool::*;
 #[allow(ambiguous_glob_reexports)]
 pub use investment_window::*;
-#[allow(ambiguous_glob_reexports)]
-pub use realloc_credit_vault_for_oracle_v2::*;
 #[allow(ambiguous_glob_reexports)]
 pub use reject_deposit::*;
 #[allow(ambiguous_glob_reexports)]

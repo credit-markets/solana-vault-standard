@@ -130,16 +130,6 @@ pub mod svs_11 {
         instructions::compliance::unfreeze_handler(ctx)
     }
 
-    /// One-shot migration of an existing CreditVault from the
-    /// pre-oracle-v2 layout to the current layout (+32 bytes for
-    /// NavOracle integration fields). Idempotent on already-migrated
-    /// accounts. Authority-gated.
-    pub fn realloc_credit_vault_for_oracle_v2(
-        ctx: Context<ReallocCreditVaultForOracleV2>,
-    ) -> Result<()> {
-        instructions::realloc_credit_vault_for_oracle_v2::handler(ctx)
-    }
-
     /// Switch CreditVault oracle source: 0 = legacy mock_oracle,
     /// 1 = canonical nav_oracle. Authority-gated emergency revert toggle.
     pub fn set_oracle_source(ctx: Context<UpdateOracleParams>, source: u8) -> Result<()> {
