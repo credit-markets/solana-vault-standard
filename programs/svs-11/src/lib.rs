@@ -140,6 +140,12 @@ pub mod svs_11 {
         instructions::realloc_credit_vault_for_oracle_v2::handler(ctx)
     }
 
+    /// Switch CreditVault oracle source: 0 = legacy mock_oracle,
+    /// 1 = canonical nav_oracle. Authority-gated emergency revert toggle.
+    pub fn set_oracle_source(ctx: Context<UpdateOracleParams>, source: u8) -> Result<()> {
+        instructions::admin::set_oracle_source_handler(ctx, source)
+    }
+
     /// Pause the vault, halting approvals and capital movements.
     pub fn pause(ctx: Context<Admin>) -> Result<()> {
         instructions::admin::pause_handler(ctx)

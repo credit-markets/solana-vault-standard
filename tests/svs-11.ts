@@ -338,6 +338,30 @@ describe("svs-11 (Credit Markets Vault)", () => {
         })
         .rpc();
     });
+
+    it("authority can switch oracle source between mock and nav-oracle", async () => {
+      await program.methods
+        .setOracleSource(1)
+        .accountsPartial({
+          authority: payer.publicKey,
+          vault,
+        })
+        .rpc();
+
+      let vaultAccount = await program.account.creditVault.fetch(vault);
+      expect(vaultAccount.oracleSource).to.equal(1);
+
+      await program.methods
+        .setOracleSource(0)
+        .accountsPartial({
+          authority: payer.publicKey,
+          vault,
+        })
+        .rpc();
+
+      vaultAccount = await program.account.creditVault.fetch(vault);
+      expect(vaultAccount.oracleSource).to.equal(0);
+    });
   });
 
   describe("Investment Window", () => {
