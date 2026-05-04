@@ -637,6 +637,220 @@ describe("svs-11 (Credit Markets Vault)", () => {
       expect(vaultAccount.totalPendingDeposits.toNumber()).to.equal(0);
     });
 
+    it("can opt into NavOracle for credit-market NAV reads", async () => {
+      const navInvestor = Keypair.generate();
+      const navAirdrop = await connection.requestAirdrop(
+        navInvestor.publicKey,
+        5 * anchor.web3.LAMPORTS_PER_SOL,
+      );
+      await connection.confirmTransaction(navAirdrop);
+      const navInvestorTokenAccount = await getOrCreateAssociatedTokenAccount(
+        connection,
+        payer,
+        assetMint,
+        navInvestor.publicKey,
+        false,
+        undefined,
+        undefined,
+        TOKEN_PROGRAM_ID,
+      );
+      await mintTo(
+        connection,
+        payer,
+        assetMint,
+        navInvestorTokenAccount.address,
+        payer.publicKey,
+        BigInt(minimumInvestment.toString()),
+        [],
+        undefined,
+        TOKEN_PROGRAM_ID,
+      );
+
+      const [navRequest] = getInvestmentRequestPDA(navInvestor.publicKey);
+      const [navFrozen] = getFrozenAccountPDA(navInvestor.publicKey);
+      const [navAttestation] = getAttestationPDA(
+        navInvestor.publicKey,
+        attester.publicKey,
+      );
+
+      await attestationMockProgram.methods
+        .createAttestation(attester.publicKey, 0, [66, 82], FAR_FUTURE_EXPIRY)
+        .accountsPartial({
+          authority: payer.publicKey,
+          attestation: navAttestation,
+          subject: navInvestor.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      await program.methods
+        .setOracleSource(1)
+        .accountsPartial({
+          authority: payer.publicKey,
+          vault,
+        })
+        .rpc();
+
+      try {
+        await publishNav();
+
+        await program.methods
+          .requestDeposit(minimumInvestment)
+          .accountsPartial({
+            investor: navInvestor.publicKey,
+            vault,
+            investmentRequest: navRequest,
+            investorTokenAccount: navInvestorTokenAccount.address,
+            depositVault,
+            assetMint,
+            attestation: navAttestation,
+            frozenCheck: navFrozen,
+            assetTokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            clock: SYSVAR_CLOCK_PUBKEY,
+          })
+          .signers([navInvestor])
+          .rpc();
+
+        await program.methods
+          .approveDeposit()
+          .accountsPartial({
+            manager: manager.publicKey,
+            vault,
+            investmentRequest: navRequest,
+            investor: navInvestor.publicKey,
+            navOracle: mockOracleData,
+            navAccount,
+            attestation: navAttestation,
+            frozenCheck: navFrozen,
+            clock: SYSVAR_CLOCK_PUBKEY,
+          })
+          .signers([manager])
+          .rpc();
+
+        const vaultAccount = await program.account.creditVault.fetch(vault);
+        expect(vaultAccount.oracleSource).to.equal(1);
+        expect(vaultAccount.lastSeenNavSequence.toString()).to.equal(
+          navSequence.toString(),
+        );
+      } finally {
+        await program.methods
+          .setOracleSource(0)
+          .accountsPartial({
+            authority: payer.publicKey,
+            vault,
+          })
+          .rpc();
+      }
+    });
+
+    it("rejects NavOracle opt-in approval when the NavAccount PDA is missing", async () => {
+      const missingNavInvestor = Keypair.generate();
+      const missingNavAirdrop = await connection.requestAirdrop(
+        missingNavInvestor.publicKey,
+        5 * anchor.web3.LAMPORTS_PER_SOL,
+      );
+      await connection.confirmTransaction(missingNavAirdrop);
+      const missingNavInvestorTokenAccount = await getOrCreateAssociatedTokenAccount(
+        connection,
+        payer,
+        assetMint,
+        missingNavInvestor.publicKey,
+        false,
+        undefined,
+        undefined,
+        TOKEN_PROGRAM_ID,
+      );
+      await mintTo(
+        connection,
+        payer,
+        assetMint,
+        missingNavInvestorTokenAccount.address,
+        payer.publicKey,
+        BigInt(minimumInvestment.toString()),
+        [],
+        undefined,
+        TOKEN_PROGRAM_ID,
+      );
+
+      const [missingNavRequest] = getInvestmentRequestPDA(
+        missingNavInvestor.publicKey,
+      );
+      const [missingNavFrozen] = getFrozenAccountPDA(
+        missingNavInvestor.publicKey,
+      );
+      const [missingNavAttestation] = getAttestationPDA(
+        missingNavInvestor.publicKey,
+        attester.publicKey,
+      );
+
+      await attestationMockProgram.methods
+        .createAttestation(attester.publicKey, 0, [66, 82], FAR_FUTURE_EXPIRY)
+        .accountsPartial({
+          authority: payer.publicKey,
+          attestation: missingNavAttestation,
+          subject: missingNavInvestor.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      await program.methods
+        .requestDeposit(minimumInvestment)
+        .accountsPartial({
+          investor: missingNavInvestor.publicKey,
+          vault,
+          investmentRequest: missingNavRequest,
+          investorTokenAccount: missingNavInvestorTokenAccount.address,
+          depositVault,
+          assetMint,
+          attestation: missingNavAttestation,
+          frozenCheck: missingNavFrozen,
+          assetTokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .signers([missingNavInvestor])
+        .rpc();
+
+      await program.methods
+        .setOracleSource(1)
+        .accountsPartial({
+          authority: payer.publicKey,
+          vault,
+        })
+        .rpc();
+
+      try {
+        await program.methods
+          .approveDeposit()
+          .accountsPartial({
+            manager: manager.publicKey,
+            vault,
+            investmentRequest: missingNavRequest,
+            investor: missingNavInvestor.publicKey,
+            navOracle: mockOracleData,
+            navAccount: program.programId,
+            attestation: missingNavAttestation,
+            frozenCheck: missingNavFrozen,
+            clock: SYSVAR_CLOCK_PUBKEY,
+          })
+          .signers([manager])
+          .rpc();
+        expect.fail("expected OracleAccountInvalid");
+      } catch (e: any) {
+        const msg = (e?.logs?.join("\n") ?? "") + "\n" + (e?.message ?? "");
+        expect(msg).to.match(/OracleAccountInvalid|oracle account invalid|0x/i);
+      } finally {
+        await program.methods
+          .setOracleSource(0)
+          .accountsPartial({
+            authority: payer.publicKey,
+            vault,
+          })
+          .rpc();
+      }
+    });
+
     it("investor claims deposit", async () => {
       const ata = await getOrCreateAssociatedTokenAccount(
         connection,
