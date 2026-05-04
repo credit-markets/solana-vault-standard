@@ -275,6 +275,8 @@ describe("svs-11 (Credit Markets Vault)", () => {
     [sharesMint] = getSharesMintPDA();
     [redemptionEscrow] = getRedemptionEscrowPDA();
     [mockOracleData] = getOracleDataPDA(vault);
+    [navAccount] = getNavAccountPDA(vault);
+    navPublisher = Keypair.generate();
     [investmentRequest] = getInvestmentRequestPDA(investor.publicKey);
     [redemptionRequest] = getRedemptionRequestPDA(investor.publicKey);
     [claimableTokens] = getClaimableTokensPDA(investor.publicKey);
@@ -398,6 +400,19 @@ describe("svs-11 (Credit Markets Vault)", () => {
         })
         .rpc();
 
+      await navOracleProgram.methods
+        .initialize()
+        .accountsPartial({
+          pool: vault,
+          navAccount,
+          publisher: navPublisher.publicKey,
+          keyRotationAuthority: payer.publicKey,
+          payer: payer.publicKey,
+        })
+        .rpc();
+
+      await publishNav();
+
       const vaultAccount = await program.account.creditVault.fetch(vault);
       expect(vaultAccount.authority.toBase58()).to.equal(
         payer.publicKey.toBase58(),
@@ -409,7 +424,10 @@ describe("svs-11 (Credit Markets Vault)", () => {
       expect(vaultAccount.sharesMint.toBase58()).to.equal(
         sharesMint.toBase58(),
       );
-      expect(vaultAccount.navOracle.toBase58()).to.equal(mockOracleData.toBase58());
+      expect(vaultAccount.navOracle.toBase58()).to.equal(
+        mockOracleData.toBase58(),
+      );
+      expect(vaultAccount.oracleSource).to.equal(0);
       expect(vaultAccount.oracleProgram.toBase58()).to.equal(
         oracleProgram.programId.toBase58(),
       );
