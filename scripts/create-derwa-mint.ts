@@ -11,41 +11,16 @@
  * either fail with "mint not found" OR worse, succeed silently against
  * a mint that has NO compliance hook (sanctions checks bypassed).
  *
- * ─── KNOWN GAP — MintConfig + ExtraAccountMetaList init DEFERRED to runbook ──
+ * The script also creates the compliance-hook PDAs required by the
+ * Token-2022 runtime:
+ *   (a) MintConfig with mode=FreelyTransferable and pool_policy=None
+ *   (b) ExtraAccountMetaList at [b"extra-account-metas", mint]
  *
- * The original design called this script to also CPI into
- * compliance-hook to:
- *   (a) create the MintConfig PDA with mode=FreelyTransferable
- *   (b) create the ExtraAccountMetaList PDA at [b"extra-account-metas", mint]
- *
- * BUT: compliance-hook does NOT expose an `initialize_mint_config`
- * instruction (only `initialize_sanctions_list`,
- * `initialize_extra_account_meta_list`, `update_sanctions_list`,
- * `execute` are public per
- * programs/programs/compliance-hook/src/lib.rs). And
- * `initialize_extra_account_meta_list` REQUIRES `MintConfig` to already
- * exist (typed `Account<'info, MintConfig>` constraint at
- * programs/programs/compliance-hook/src/instructions/initialize_extra_account_meta_list.rs:52-57).
- *
- * Resolution: defer (a) and (b) to the deployment runbook. Until
- * compliance-hook grows a public `initialize_mint_config` ix, this
- * script:
- *
- *   ✅ DOES create the Token-2022 mint with TransferHook extension
- *      binding (extension authority = operator; should be rotated to
- *      Ops Guardian post-deploy)
- *   ✅ DOES set wrapper_signer PDA as mint + freeze authority (only
- *      the derwa-wrapper program can mint/burn dePOOL)
- *   ✅ DOES persist the artifact JSON with `pending_runbook_steps` so
- *      downstream tasks see the gap explicitly
- *   ❌ DOES NOT call initializeMintConfig (ix does not exist)
- *   ❌ DOES NOT call initializeExtraAccountMetaList (would fail without
- *      MintConfig)
- *
- * The artifact JSON includes a `pending_runbook_steps` array
- * enumerating the remaining work for the operator. The deployment
- * runbook must enumerate these as named steps before this is
- * considered fully closed.
+ * Authority choreography: compliance-hook authorizes MintConfig creation
+ * against the Token-2022 mint authority, so the mint is initialized with
+ * operator authority first, the hook PDAs are created, then mint+freeze
+ * authority are transferred to wrapper_signer. Final state: only the
+ * derwa-wrapper program can mint/burn/freeze dePOOL.
  *
  * Usage:
  *   npx ts-node scripts/create-derwa-mint.ts \
@@ -71,14 +46,19 @@ import {
 } from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
+  AuthorityType,
   ExtensionType,
   createInitializeMintInstruction,
   createInitializeTransferHookInstruction,
+  createSetAuthorityInstruction,
   getMintLen,
 } from "@solana/spl-token";
+import { AnchorProvider, Program, Wallet } from "@coral-xyz/anchor";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import complianceHookIdl from "../target/idl/compliance_hook.json";
+import type { ComplianceHook } from "../target/types/compliance_hook";
 
 // ─── CLI parsing ────────────────────────────────────────────────────────────
 //
@@ -228,10 +208,11 @@ async function main() {
       COMPLIANCE_HOOK, // hook program — compliance-hook from Plan A
       TOKEN_2022_PROGRAM_ID,
     ),
-    // c. Initialize the mint itself with the wrapper_signer PDA as both
-    //    mint authority and freeze authority. This is the lock that ensures
-    //    only the wrapper program can mint/burn dePOOL — even the operator
-    //    cannot touch supply post-init.
+    // c. Initialize the mint itself with operator as temporary mint/freeze
+    //    authority. compliance-hook's initialize_mint_config must be signed
+    //    by the current mint authority, and the wrapper_signer PDA cannot
+    //    sign outside a derwa-wrapper CPI. We transfer authority to
+    //    wrapper_signer immediately after MintConfig + EAML creation.
     //
     //    Decimals = 6: matches cPOOL's default decimals from
     //    (`initialize_pool` defaults `permissioned_mint.decimals = 6`).
@@ -240,8 +221,8 @@ async function main() {
     createInitializeMintInstruction(
       mintKp.publicKey,
       6,
-      wrapperSigner,
-      wrapperSigner,
+      operator.publicKey,
+      operator.publicKey,
       TOKEN_2022_PROGRAM_ID,
     ),
   ];
@@ -258,32 +239,86 @@ async function main() {
     `   TransferHook → ${COMPLIANCE_HOOK.toBase58()} (extension authority: operator, rotate post-deploy)`,
   );
 
-  // 4. ── DEFERRED: MintConfig PDA creation ──────────────────────────────────
-  //    The original spec's Step 4 called compliance_hook::initializeMintConfig
-  //    here, but that instruction does NOT exist in compliance-hook (see
-  //    KNOWN GAP at file header). Skipped — see runbook below.
+  // 4. Create compliance-hook MintConfig in FreelyTransferable mode.
   const [mintConfigPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("mint_config"), mintKp.publicKey.toBuffer()],
     COMPLIANCE_HOOK,
   );
 
-  // 5. ── DEFERRED: ExtraAccountMetaList PDA creation ───────────────────────
-  //    Original spec's Step 5. Cannot run until MintConfig exists (typed
-  //    Account<'info, MintConfig> constraint in the ix). Skipped — see
-  //    runbook below.
   const [emaListPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("extra-account-metas"), mintKp.publicKey.toBuffer()],
     COMPLIANCE_HOOK,
   );
 
-  // 6. Persist the artifact JSON for downstream consumers (Task 6 wrapper
-  //    init + Task 14 runbook). The `pending_runbook_steps` array makes the
-  //    deferral explicit so a future operator/agent can't accidentally
-  //    treat this as fully wired-up.
+  const provider = new AnchorProvider(conn, new Wallet(operator), {
+    commitment: "confirmed",
+  });
+  const complianceHook = new Program<ComplianceHook>(
+    complianceHookIdl as ComplianceHook,
+    provider,
+  );
+
+  console.log(`\nInitializing compliance-hook MintConfig...`);
+  const initMintConfigSig = await complianceHook.methods
+    .initializeMintConfig({
+      mode: { freelyTransferable: {} },
+      poolPolicy: null,
+    })
+    .accountsPartial({
+      mintConfig: mintConfigPda,
+      mint: mintKp.publicKey,
+      mintAuthority: operator.publicKey,
+      payer: operator.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+  console.log(`✅ MintConfig initialized`);
+  console.log(`   tx: ${initMintConfigSig}`);
+
+  console.log(`\nInitializing ExtraAccountMetaList...`);
+  const initEamlSig = await complianceHook.methods
+    .initializeExtraAccountMetaList()
+    .accountsPartial({
+      extraAccountMetaList: emaListPda,
+      mint: mintKp.publicKey,
+      mintConfig: mintConfigPda,
+      mintAuthority: operator.publicKey,
+      payer: operator.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+  console.log(`✅ ExtraAccountMetaList initialized`);
+  console.log(`   tx: ${initEamlSig}`);
+
+  console.log(`\nTransferring mint/freeze authority to wrapper signer...`);
+  const authoritySig = await sendAndConfirmTransaction(
+    conn,
+    new Transaction().add(
+      createSetAuthorityInstruction(
+        mintKp.publicKey,
+        operator.publicKey,
+        AuthorityType.MintTokens,
+        wrapperSigner,
+        [],
+        TOKEN_2022_PROGRAM_ID,
+      ),
+      createSetAuthorityInstruction(
+        mintKp.publicKey,
+        operator.publicKey,
+        AuthorityType.FreezeAccount,
+        wrapperSigner,
+        [],
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    ),
+    [operator],
+  );
+  console.log(`✅ Mint/freeze authority transferred to wrapper signer`);
+  console.log(`   tx: ${authoritySig}`);
+
+  // 6. Persist the artifact JSON for downstream consumers.
   const outFile = path.resolve(`.derwa-mints-${pool.toBase58()}.json`);
   const artifact = {
-    plan: "C",
-    task: "5b",
     cluster: args.cluster,
     pool: pool.toBase58(),
     derwa_mint: mintKp.publicKey.toBase58(),
@@ -297,31 +332,20 @@ async function main() {
     transfer_hook_extension_authority: operator.publicKey.toBase58(),
     created_at: new Date().toISOString(),
     creation_tx: sig,
-    // Explicit deferral — DO NOT remove without confirming the gap closed.
+    initialize_mint_config_tx: initMintConfigSig,
+    initialize_extra_account_meta_list_tx: initEamlSig,
+    authority_transfer_tx: authoritySig,
     pending_runbook_steps: [
-      "MintConfig PDA creation (mode=FreelyTransferable, pool_policy=None) — blocked: compliance-hook lacks public initialize_mint_config ix; see deployment runbook",
-      "ExtraAccountMetaList PDA initialization at [b'extra-account-metas', derwa_mint] — blocked: depends on MintConfig",
       "Rotate TransferHook extension authority from operator to Ops Guardian Squads vault — Plan A deployment runbook",
     ],
-    fully_wired: false,
+    fully_wired: true,
   };
 
   fs.writeFileSync(outFile, JSON.stringify(artifact, null, 2));
   console.log(`\nWrote dePOOL artifacts → ${outFile}`);
 
-  // 7. Loud, unmissable warning — operator MUST run runbook steps before
-  //    Task 6 wrapper init can succeed end-to-end against compliance-hook.
-  console.log(`\n${"━".repeat(72)}`);
   console.log(
-    `⚠️  PARTIAL COMPLETION — runbook steps required before wrap/unwrap will work:`,
-  );
-  console.log(`${"━".repeat(72)}`);
-  for (const step of artifact.pending_runbook_steps) {
-    console.log(`   • ${step}`);
-  }
-  console.log(`${"━".repeat(72)}`);
-  console.log(
-    `\nNext: pass derwa_mint=${mintKp.publicKey.toBase58()} to wrapper.initialize.\n`,
+    `\nNext: pass derwa_mint=${mintKp.publicKey.toBase58()} to wrapper.initialize. TransferHook extension authority rotation remains a governance runbook step.\n`,
   );
 }
 
