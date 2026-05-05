@@ -37,9 +37,10 @@ pub struct InitializeExtraAccountMetaList<'info> {
     pub extra_account_meta_list: AccountInfo<'info>,
 
     /// CHECK: the Token-2022 mint this hook is bound to. We do NOT
-    /// validate the mint's TransferHook extension authority here — Plan C
-    /// Task 3 (cPOOL) and Task 5 (dePOOL) own that wiring and call this
-    /// instruction as a CPI from `initialize_pool` / wrapper init. The
+    /// validate the mint's TransferHook extension authority here — the
+    /// mint creation flows (cPOOL via SVS-11 `initialize_pool`; dePOOL
+    /// via the deRWA wrapper init) own that wiring and call this
+    /// instruction as a CPI from those entry points. The
     /// `mint_authority` signer below provides the access-control gate.
     pub mint: UncheckedAccount<'info>,
 

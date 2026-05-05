@@ -31,8 +31,8 @@ pub mod nav_oracle {
     }
 
     /// Rotate the publisher pubkey on a NavAccount. Gated by
-    /// `key_rotation_authority` (Protocol Guardian Squads vault per Plan A
-    /// Task 14). Old publisher is rejected on next `update` once rotation
+    /// `key_rotation_authority` (the Protocol Guardian Squads multisig
+    /// vault). Old publisher is rejected on next `update` once rotation
     /// completes.
     pub fn rotate_publisher(ctx: Context<RotatePublisher>) -> Result<()> {
         instructions::rotate_publisher::handler(ctx)

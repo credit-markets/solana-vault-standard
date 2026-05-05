@@ -19,8 +19,8 @@ use crate::state::WrapperConfig;
 /// ComplianceHook will enforce on the cPOOL `transfer_checked` CPI in step 3
 /// (in Permissioned mode, it reads the destination's attestation and rejects
 /// unattested destinations). We do an explicit check here as defence-in-depth:
-/// if the hook is mis-configured (Task 5b's deferred MintConfig path leaves
-/// the hook a no-op until Task 14 runbook closes the gap), this explicit
+/// if the hook is mis-configured (e.g. a deferred MintConfig path leaves the
+/// hook a no-op until the deployment runbook closes the gap), this explicit
 /// check still guards the gate.
 #[derive(Accounts)]
 pub struct Unwrap<'info> {

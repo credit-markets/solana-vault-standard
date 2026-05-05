@@ -190,13 +190,13 @@ export class CreditVault {
       ASSOCIATED_TOKEN_PROGRAM_ID,
     );
 
-    // Plan C Task 3 / Step 3b — initialize_pool binds the cPOOL mint's
-    // Token-2022 TransferHook extension to compliance-hook in this tx.
-    // The dependent compliance-hook PDAs (MintConfig, EAML) and the
-    // infrastructure attestations (wrapper / vault / admin) are
-    // initialized by the deployment runbook in SEPARATE follow-up txs
-    // calling compliance-hook + mock-sas directly. See svs-11
-    // initialize_pool.rs for the cross-plan invariant rationale.
+    // initialize_pool binds the cPOOL mint's Token-2022 TransferHook
+    // extension to compliance-hook in this tx. The dependent
+    // compliance-hook PDAs (MintConfig, EAML) and the infrastructure
+    // attestations (wrapper / vault / admin) are initialized by the
+    // deployment runbook in SEPARATE follow-up txs calling
+    // compliance-hook + mock-sas directly. See svs-11
+    // initialize_pool.rs for the cross-program invariant rationale.
     await program.methods
       .initializePool(id, params.minimumInvestment, params.maxStaleness)
       .accountsPartial({
@@ -315,10 +315,10 @@ export class CreditVault {
         investmentRequest,
         investor,
         navOracle,
-        // Plan B Task 6: nav_account is the NavAccount PDA from the
-        // nav-oracle program. Read only when CreditVault.oracle_source == 1.
-        // For oracle_source == 0 (mock-oracle revert mode) any account
-        // works — we default to the program ID as a non-readable filler.
+        // nav_account is the NavAccount PDA from the nav-oracle program.
+        // Read only when CreditVault.oracle_source == 1. For
+        // oracle_source == 0 (mock-oracle revert mode) any account works
+        // — we default to the program ID as a non-readable filler.
         navAccount: navAccount ?? this.program.programId,
         attestation,
         frozenCheck: frozenCheck ?? this.program.programId,
@@ -417,10 +417,10 @@ export class CreditVault {
     );
     const investorSharesAccount = this.getInvestorSharesAccount(investor);
 
-    // Plan C Task 3 / P0.6 — `queued_for_settlement_at` is computed off-chain
-    // by the redemption-scheduler (Plan C Task 11). SDK callers without a
-    // scheduler can pass `0` as a sentinel; the manager will set the real
-    // settlement date on first `approveRedeem` partial fulfillment.
+    // `queued_for_settlement_at` is computed off-chain by the
+    // redemption-scheduler service. SDK callers without a scheduler can
+    // pass `0` as a sentinel; the manager will set the real settlement
+    // date on first `approveRedeem` partial fulfillment.
     const queuedAt = queuedForSettlementAt ?? new BN(0);
 
     return this.program.methods
@@ -448,12 +448,12 @@ export class CreditVault {
     attestation: PublicKey,
     frozenCheck?: PublicKey,
     navAccount?: PublicKey,
-    /// Plan C Task 3 / P0.6 — fixed-point ratio (1e18 = 100%). Default
-    /// preserves the pre-Plan-C "full fulfillment" semantics so existing
-    /// SDK callers continue to work.
+    /// Fixed-point ratio (1e18 = 100%). Default preserves the original
+    /// "full fulfillment" semantics so existing SDK callers continue to
+    /// work.
     batchSettlementRatioScaled?: BN,
-    /// Plan C Task 3 / P0.6 — settlement epoch the request auto-requeues
-    /// to on partial fulfillment. Ignored on full fulfillment.
+    /// Settlement epoch the request auto-requeues to on partial
+    /// fulfillment. Ignored on full fulfillment.
     nextSettlementAt?: BN,
   ): Promise<string> {
     const [redemptionRequest] = getRedemptionRequestAddress(
@@ -484,7 +484,7 @@ export class CreditVault {
         assetMint: this.assetMint,
         claimableTokens,
         navOracle,
-        // Plan B Task 6: nav_account — see approveDeposit for full context.
+        // nav_account — see approveDeposit for full context.
         navAccount: navAccount ?? this.program.programId,
         attestation,
         frozenCheck: frozenCheck ?? this.program.programId,

@@ -6,15 +6,16 @@ use crate::state::{ComplianceMode, MintConfig, SanctionsList};
 
 /// `Execute` accounts: order MUST match the canonical Token-2022 TransferHook
 /// layout — `source_ata`, `mint`, `destination_ata`, `source_owner` — followed
-/// by the compliance-hook extras. The extra-account-meta-list bound by Task 9b
-/// derives the extra account seeds via `Seed::AccountKey { index: N }` against
-/// these positions, so the order here is load-bearing.
+/// by the compliance-hook extras. The extra-account-meta-list (built in
+/// `initialize_extra_account_meta_list`) derives the extra account seeds via
+/// `Seed::AccountKey { index: N }` against these positions, so the order here
+/// is load-bearing.
 ///
 /// Permissioned-mode extras (`source_attestation`, `destination_attestation`,
 /// `pool_policy`) are declared as `Option<UncheckedAccount>` so a single
 /// `Execute` struct serves both modes. The Token-2022 runtime resolves the
 /// EAML at the canonical seed (`b"extra-account-metas"`), and that PDA holds
-/// 4 entries for `FreelyTransferable` and 7 for `Permissioned` (Task 9b).
+/// 4 entries for `FreelyTransferable` and 7 for `Permissioned`.
 /// Anchor 0.31's `Option<T>` account binding accepts a missing tail of
 /// accounts as `None`, which matches the runtime's truncated invocation in
 /// `FreelyTransferable` mode. The handler branches on `mint_config.mode` and
@@ -74,13 +75,13 @@ pub struct Execute<'info> {
     /// Index 9 (Permissioned only).
     pub destination_attestation: Option<UncheckedAccount<'info>>,
 
-    /// CHECK: pool-policy PDA referenced by `mint_config.pool_policy`. Plan A
-    /// P0 does NOT enforce any threshold (jurisdiction / investor_class /
-    /// kyc_risk_tier) against this account — the Permissioned arm only
-    /// validates that both attestations exist + are valid. The pool-policy
-    /// extra is wired through Task 9b for forward compatibility with the
-    /// P1 enforcement layer that consumes it. The handler currently leaves
-    /// this account untouched.
+    /// CHECK: pool-policy PDA referenced by `mint_config.pool_policy`. The
+    /// current implementation does NOT enforce any threshold (jurisdiction /
+    /// investor_class / kyc_risk_tier) against this account — the
+    /// Permissioned arm only validates that both attestations exist + are
+    /// valid. The pool-policy extra is wired through the EAML for forward
+    /// compatibility with a future enforcement layer that will consume it.
+    /// The handler currently leaves this account untouched.
     /// Index 10 (Permissioned only).
     pub pool_policy: Option<UncheckedAccount<'info>>,
 }
@@ -165,20 +166,20 @@ pub fn handler(ctx: Context<Execute>) -> Result<()> {
 ///
 /// Layout is fixed by SVS-11's `Attestation` struct (see
 /// `programs/svs-11/src/attestation.rs`). We rely on field offsets — DO NOT
-/// desync this from svs-11 state without updating both sides. Offset map
-/// (after the 8-byte Anchor discriminator), CORRECTED post-Task 8:
+/// desync this from svs-11 state without updating both sides. Current offset
+/// map (after the 8-byte Anchor discriminator):
 ///   0..32    subject (Pubkey)
 ///   32..64   issuer (Pubkey)
 ///   64       attestation_type (u8)
 ///   65..67   country_code ([u8; 2])
 ///   67..75   issued_at (i64)
-///   75..83   expires_at (i64)         <-- was wrongly listed at 64..72 in earlier draft
-///   83       revoked (bool, 1 byte)   <-- was wrongly listed at 72 in earlier draft
+///   75..83   expires_at (i64)
+///   83       revoked (bool, 1 byte)
 ///   84       bump (u8)
 ///   85..117  _reserved ([u8; 32])
-///   117..119 jurisdiction ([u8; 2])   <-- new field, Task 8
-///   119      investor_class (u8)      <-- new field, Task 8
-///   120      kyc_risk_tier (u8)       <-- new field, Task 8
+///   117..119 jurisdiction ([u8; 2])
+///   119      investor_class (u8)
+///   120      kyc_risk_tier (u8)
 /// Total: 121 bytes after discriminator (LEN = 8 + 121 = 129).
 fn check_attestation(att: &AccountInfo, label: &'static str) -> Result<()> {
     require!(

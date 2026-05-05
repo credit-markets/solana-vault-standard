@@ -63,9 +63,9 @@ pub mod compliance_hook {
     /// `FrozenAccount` PDA exists for either, then branches on the mint's
     /// `ComplianceMode`. `FreelyTransferable` returns `Ok`; `Permissioned`
     /// validates that BOTH source and destination wallets hold non-revoked,
-    /// non-expired SVS-11 Attestation PDAs (Task 10). Pool-policy threshold
+    /// non-expired SVS-11 Attestation PDAs. Pool-policy threshold
     /// enforcement (jurisdiction / investor_class / kyc_risk_tier) is
-    /// reserved for P1.
+    /// deferred to a follow-up enforcement layer.
     pub fn execute(ctx: Context<Execute>) -> Result<()> {
         instructions::execute::handler(ctx)
     }

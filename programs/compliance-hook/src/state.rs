@@ -1,10 +1,10 @@
 use anchor_lang::prelude::*;
 
 /// Global sanctions list (one per program deployment).
-/// Authority is the Ops Guardian Squads vault per P0.10 spec.
+/// Authority is held by the Ops Guardian Squads multisig vault.
 ///
 /// Address space: capped at 256 sanctioned wallets at init. Realloc
-/// extends capacity in 256-entry chunks if needed (P1+ concern). The
+/// extends capacity in 256-entry chunks if needed (future concern). The
 /// 256 cap keeps `SPACE` under Solana's 10_240-byte CPI allocation
 /// limit (`MAX_PERMITTED_DATA_INCREASE`) so `init` succeeds in one CPI.
 #[account]
@@ -39,10 +39,10 @@ impl SanctionsList {
 
 /// Mode discriminator stored at mint-config-PDA level.
 ///
-/// Plan A delivers `FreelyTransferable`; `Permissioned` is wired in but its
-/// attestation-checking branch is filled in by Task 10. Today the
-/// `Permissioned` arm returns a placeholder error so the mode is callable but
-/// not yet routable.
+/// `FreelyTransferable` is fully implemented. `Permissioned` is wired in;
+/// its attestation-checking branch is filled in by the per-mint config
+/// flow. Today the `Permissioned` arm returns a placeholder error so the
+/// mode is callable but not yet routable.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ComplianceMode {
     FreelyTransferable,

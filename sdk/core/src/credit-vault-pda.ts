@@ -10,7 +10,7 @@ export const CLAIMABLE_TOKENS_SEED = Buffer.from("claimable_tokens");
 export const CREDIT_FROZEN_ACCOUNT_SEED = Buffer.from("frozen_account");
 
 // =============================================================================
-// Plan C Task 3 / Step 3b — ComplianceHook + MockSas PDA seeds
+// ComplianceHook + MockSas PDA seeds
 // =============================================================================
 //
 // These PDAs live under DIFFERENT programs (compliance-hook, mock-sas) but are
@@ -21,12 +21,12 @@ export const MINT_CONFIG_SEED = Buffer.from("mint_config");
 export const EXTRA_ACCOUNT_METAS_SEED = Buffer.from("extra-account-metas");
 export const ATTESTATION_SEED = Buffer.from("attestation");
 
-/// Plan C Task 3 — compliance-hook program ID. Mirrors svs-11's
+/// compliance-hook program ID. Mirrors svs-11's
 /// `COMPLIANCE_HOOK_PROGRAM_ID` constant.
 export const COMPLIANCE_HOOK_PROGRAM_ID = new PublicKey(
   "6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P",
 );
-/// Plan C Task 3 — mock-sas program ID. Mirrors svs-11's
+/// mock-sas program ID. Mirrors svs-11's
 /// `MOCK_SAS_PROGRAM_ID` constant.
 export const MOCK_SAS_PROGRAM_ID = new PublicKey(
   "GTTMWDHTZibyEpqNRr33RnBhgms262U6qHaGrjoHqEXg",

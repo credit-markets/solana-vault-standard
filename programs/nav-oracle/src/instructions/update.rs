@@ -54,7 +54,7 @@ pub fn handler(ctx: Context<UpdateNav>, args: UpdateArgs) -> Result<()> {
 
     // 3. Verify SOME PRECEDING instruction in this tx is the ed25519 verify
     //    of (publisher, message=signing_payload, signature=args.signature).
-    //    P1.A fix: Must scan ALL instructions before this one, not just index 0.
+    //    Must scan ALL instructions before this one, not just index 0.
     //    Earlier draft used `load_instruction_at_checked(0, ...)` which assumes
     //    Ed25519Program is the FIRST instruction. That breaks the moment the
     //    publisher prepends a ComputeBudget instruction (priority fees / unit limits),
