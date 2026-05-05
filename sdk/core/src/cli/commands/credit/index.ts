@@ -13,6 +13,7 @@ import { registerDrawDownCommand } from "./draw-down";
 import { registerFreezeAccountCommand } from "./freeze-account";
 import { registerUnfreezeAccountCommand } from "./unfreeze-account";
 import { registerInvestmentWindowCommand } from "./investment-window";
+import { registerSetOracleSourceCommand } from "./set-oracle-source";
 
 export function registerCreditCommands(program: Command): void {
   registerRequestDepositCommand(program);
@@ -29,4 +30,5 @@ export function registerCreditCommands(program: Command): void {
   registerFreezeAccountCommand(program);
   registerUnfreezeAccountCommand(program);
   registerInvestmentWindowCommand(program);
+  registerSetOracleSourceCommand(program);
 }
