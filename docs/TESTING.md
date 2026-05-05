@@ -1,6 +1,6 @@
 # Testing Guide
 
-Comprehensive guide to testing the Solana Vault Standard (SVS-1 through SVS-4, SVS-10).
+Comprehensive guide to testing the Solana Vault Standard (SVS-1 through SVS-4, SVS-10, SVS-11) and the Credit Markets supporting programs (compliance-hook, nav-oracle, derwa-wrapper).
 
 ## Overview
 
@@ -33,8 +33,14 @@ SVS uses a multi-layered testing strategy:
 ## Quick Start
 
 ```bash
-# Run all integration tests (291 tests)
+# Run all integration tests (424 tests)
 anchor test
+
+# Run new program tests individually
+anchor test -- tests/svs-11.ts                    # SVS-11 CreditVault (58 tests)
+anchor test -- tests/compliance-hook.spec.ts      # compliance-hook (15 tests)
+anchor test -- tests/nav-oracle.spec.ts           # nav-oracle (3 tests)
+anchor test -- tests/derwa-wrapper.spec.ts        # derwa-wrapper (3 tests)
 
 # Start proof backend first (required for SVS-3/SVS-4 CT tests)
 cd proofs-backend && cargo run
@@ -88,7 +94,14 @@ Located in `tests/`:
 | `admin-extended.ts` | Admin operations | 10 |
 | `full-lifecycle.ts` | End-to-end flows | 8 |
 | `svs-10.ts` | SVS-10 async vault lifecycle, operators, oracle | 88 |
-| **Total** | | **344** |
+| `svs-11.ts` | SVS-11 CreditVault lifecycle, oracle source toggle, NavOracle opt-in | 58 |
+| `compliance-hook.spec.ts` | TransferHook sanctions list, permissioned/freely transferable mode | 15 |
+| `nav-oracle.spec.ts` | NavOracle publishing, sequence monotonicity, self-consistency | 3 |
+| `derwa-wrapper.spec.ts` | cPOOL → dePOOL wrap + attestation-gated unwrap | 3 |
+| `create-derwa-mint-script.spec.ts` | dePOOL mint creation script (MintConfig + EAML wiring) | 1 |
+| **Total** | | **424** |
+
+**SVS-11 NAV oracle additions:** 3 new test cases were added in this PR to cover the oracle-source toggle and the NavOracle adapter path — `authority can switch oracle source between mock and nav-oracle`, `can opt into NavOracle for credit-market NAV reads`, and `rejects NavOracle opt-in approval when the NavAccount PDA is missing`.
 
 **Note:** SVS-3/SVS-4 confidential transfer tests require the proof backend running (`cd proofs-backend && cargo run`). Without it, CT-dependent tests are automatically skipped.
 
@@ -633,12 +646,12 @@ grcov . -s . --binary-path ./target/debug/ -t html --branch --ignore-not-existin
 
 | Category | Coverage |
 |----------|----------|
-| Integration Tests (SVS-1/2/3/4/10) | 344 tests |
+| Integration Tests (SVS-1/2/3/4/10/11 + supporting programs) | 424 tests |
 | Proof Backend Tests | 19 tests |
 | SDK Tests | 530 tests |
 | Fuzz Tests | 6 binaries, 90+ flows |
 | Devnet Scripts (SVS-5) | 9 scripts, 50+ test cases |
-| **Total** | **990+ test cases** |
+| **Total** | **1070+ test cases** |
 
 ## Debugging Tests
 
