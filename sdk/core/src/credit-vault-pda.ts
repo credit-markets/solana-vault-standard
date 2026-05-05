@@ -9,64 +9,8 @@ export const REDEMPTION_REQUEST_SEED = Buffer.from("redemption_request");
 export const CLAIMABLE_TOKENS_SEED = Buffer.from("claimable_tokens");
 export const CREDIT_FROZEN_ACCOUNT_SEED = Buffer.from("frozen_account");
 
-// =============================================================================
-// ComplianceHook + MockSas PDA seeds
-// =============================================================================
-//
-// These PDAs live under DIFFERENT programs (compliance-hook, mock-sas) but are
-// initialized by SVS-11's `initialize_pool` ix, so the SDK must derive them
-// to populate the new `accountsPartial` slots.
-
-export const MINT_CONFIG_SEED = Buffer.from("mint_config");
-export const EXTRA_ACCOUNT_METAS_SEED = Buffer.from("extra-account-metas");
-export const ATTESTATION_SEED = Buffer.from("attestation");
-
-/// compliance-hook program ID. Mirrors svs-11's
-/// `COMPLIANCE_HOOK_PROGRAM_ID` constant.
-export const COMPLIANCE_HOOK_PROGRAM_ID = new PublicKey(
-  "6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P",
-);
-/// mock-sas program ID. Mirrors svs-11's
-/// `MOCK_SAS_PROGRAM_ID` constant.
-export const MOCK_SAS_PROGRAM_ID = new PublicKey(
-  "GTTMWDHTZibyEpqNRr33RnBhgms262U6qHaGrjoHqEXg",
-);
-
-export function getMintConfigAddress(
-  sharesMint: PublicKey,
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [MINT_CONFIG_SEED, sharesMint.toBuffer()],
-    COMPLIANCE_HOOK_PROGRAM_ID,
-  );
-}
-
-export function getExtraAccountMetaListAddress(
-  sharesMint: PublicKey,
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [EXTRA_ACCOUNT_METAS_SEED, sharesMint.toBuffer()],
-    COMPLIANCE_HOOK_PROGRAM_ID,
-  );
-}
-
-/// Mirrors mock-sas's `CreateAttestation` PDA seeds:
-///   [b"attestation", subject, issuer, &[attestation_type]]
-export function getMockSasAttestationAddress(
-  subject: PublicKey,
-  issuer: PublicKey,
-  attestationType: number,
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [
-      ATTESTATION_SEED,
-      subject.toBuffer(),
-      issuer.toBuffer(),
-      Buffer.from([attestationType]),
-    ],
-    MOCK_SAS_PROGRAM_ID,
-  );
-}
+// Cross-program PDA helpers for compliance-hook and mock-sas live in their
+// dedicated PDA modules: `./compliance-hook-pda` and `./mock-sas-pda`.
 
 export function getCreditVaultAddress(
   programId: PublicKey,

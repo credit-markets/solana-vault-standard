@@ -41,6 +41,13 @@ export interface CreditVaultState {
   bump: number;
   redemptionEscrowBump: number;
   paused: boolean;
+  // Oracle extensibility fields. `oracleSource` selects the read path:
+  //   0 = simple/mock oracle (neutral upstream default)
+  //   1 = NavOracle adapter (rich credit-grade NAV)
+  oracleSource: number;
+  lastSeenNavSequence: BN;
+  lastSeenNavPrice: BN;
+  maxNavStalenessSecs: BN;
 }
 
 export interface CreateCreditVaultParams {
@@ -665,6 +672,31 @@ export class CreditVault {
   async unpause(authority: PublicKey): Promise<string> {
     return this.program.methods
       .unpause()
+      .accountsPartial({
+        authority,
+        vault: this.vault,
+      })
+      .rpc();
+  }
+
+  /**
+   * Switch the vault's oracle read path between the simple/mock oracle
+   * (`source = 0`, neutral upstream default) and the optional NavOracle
+   * adapter (`source = 1`, rich credit-grade NAV).
+   *
+   * Authority-gated. Does NOT mutate `nav_oracle` or `oracle_program` —
+   * deployments can opt into or out of richer NAV reads without a full
+   * program upgrade. Emits an `OracleSourceChanged` event.
+   *
+   * @param authority - Vault authority (signer)
+   * @param source - 0 (simple/mock) or 1 (NavOracle adapter)
+   */
+  async setOracleSource(
+    authority: PublicKey,
+    source: 0 | 1,
+  ): Promise<string> {
+    return this.program.methods
+      .setOracleSource(source)
       .accountsPartial({
         authority,
         vault: this.vault,
