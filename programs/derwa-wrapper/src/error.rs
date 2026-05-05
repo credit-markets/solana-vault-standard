@@ -13,4 +13,22 @@ pub enum DeRwaError {
 
     #[msg("permissioned mint does not match wrapper config")]
     MintMismatch = 8003,
+
+    #[msg("attestation account is not owned by the configured attestation program")]
+    InvalidAttestationProgram = 8004,
+
+    #[msg("attestation subject does not match the unwrapping investor")]
+    InvalidAttestationSubject = 8005,
+
+    #[msg("attestation issuer does not match the wrapper-configured issuer")]
+    InvalidAttestationIssuer = 8006,
+
+    #[msg("attestation type does not match the wrapper-required type")]
+    InvalidAttestationType = 8007,
+
+    #[msg("attestation account address does not match the canonical PDA derivation")]
+    InvalidAttestationPda = 8008,
+
+    #[msg("attestation_program / attestation_issuer must be set (non-default)")]
+    InvalidAttestationConfig = 8009,
 }

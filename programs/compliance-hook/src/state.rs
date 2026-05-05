@@ -39,10 +39,15 @@ impl SanctionsList {
 
 /// Mode discriminator stored at mint-config-PDA level.
 ///
-/// `FreelyTransferable` is fully implemented. `Permissioned` is wired in;
-/// its attestation-checking branch is filled in by the per-mint config
-/// flow. Today the `Permissioned` arm returns a placeholder error so the
-/// mode is callable but not yet routable.
+/// `FreelyTransferable` — sanctions + frozen checks only; transfers
+/// proceed without an attestation. Used for dePOOL-style freely
+/// transferable mints.
+///
+/// `Permissioned` — full SVS-11 attestation enforcement on both source
+/// and destination ATA owners. The `execute` handler reads
+/// `MintConfig.attestation_program / attestation_issuer /
+/// required_attestation_type` to validate the attestation accounts
+/// passed by the Token-2022 runtime.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ComplianceMode {
     FreelyTransferable,
@@ -54,26 +59,50 @@ pub enum ComplianceMode {
 /// Seeds: `[b"mint_config", mint_pubkey]`
 ///
 /// Layout (post-discriminator):
-/// - `mint`         : `Pubkey` (32 bytes)              offset  8..40
-/// - `mode`         : `ComplianceMode` (1 byte)         offset 40..41
-/// - `pool_policy`  : `Option<Pubkey>` (1 + up to 32)   offset 41..74
+/// - `mint`                       : `Pubkey` (32 bytes)              offset   8..40
+/// - `mode`                       : `ComplianceMode` (1 byte)         offset  40..41
+/// - `pool_policy`                : `Option<Pubkey>` (1 + up to 32)   offset  41..74
+/// - `attestation_program`        : `Pubkey` (32 bytes)               offset  74..106
+/// - `attestation_issuer`         : `Pubkey` (32 bytes)               offset 106..138
+/// - `required_attestation_type`  : `u8` (1 byte)                     offset 138..139
 ///
 /// `pool_policy` reserves the 33-byte max-case so layout is fixed-size;
 /// the `Option<Pubkey>` byte at offset 41 is the discriminator
 /// (0 = None, 1 = Some). `pool_policy` lives at byte offset
 /// `8 + 34 = 42` inside the account; the ExtraAccountMetaList builder
 /// consumes that offset.
+///
+/// Trust-anchor fields (`attestation_program`, `attestation_issuer`,
+/// `required_attestation_type`) are appended AFTER pool_policy to
+/// preserve the existing offset reads in the EAML builder. Field-order
+/// is load-bearing — see `initialize_extra_account_meta_list.rs` for
+/// the exact byte offsets it depends on.
 #[account]
 pub struct MintConfig {
     pub mint: Pubkey,
     pub mode: ComplianceMode,
     /// Optional pool policy PDA (Permissioned mode); unused in FreelyTransferable.
     pub pool_policy: Option<Pubkey>,
+    /// Program that owns acceptable attestation accounts. Validated by
+    /// `execute::check_attestation` against the passed attestation
+    /// accounts' `owner`. `Pubkey::default()` is reserved for "unset"
+    /// and is rejected at init when `mode == Permissioned`.
+    pub attestation_program: Pubkey,
+    /// Expected `issuer` field on attestation payloads. Pins the trust
+    /// anchor for this mint to a specific compliance attester. Same
+    /// semantics as `WrapperConfig.attestation_issuer` in derwa-wrapper.
+    pub attestation_issuer: Pubkey,
+    /// Required `attestation_type` byte. Encodes the KYC tier (e.g.
+    /// 0 = generic KYC, 2 = accredited investor) — prevents a low-tier
+    /// attestation from satisfying a Permissioned mint that requires a
+    /// higher tier when the same issuer issues multiple types.
+    pub required_attestation_type: u8,
 }
 
 impl MintConfig {
     pub const SEED_PREFIX: &'static [u8] = b"mint_config";
     /// 8 (discriminator) + 32 (mint) + 1 (mode) + 1 (Option tag) + 32 (Pubkey)
-    /// = 74 bytes (max-case `Option<Pubkey>` reserves all 33 fixed bytes).
-    pub const SPACE: usize = 8 + 32 + 1 + 1 + 32;
+    /// + 32 (attestation_program) + 32 (attestation_issuer) + 1 (required_attestation_type)
+    /// = 139 bytes (max-case `Option<Pubkey>` reserves all 33 fixed bytes).
+    pub const SPACE: usize = 8 + 32 + 1 + 1 + 32 + 32 + 32 + 1;
 }

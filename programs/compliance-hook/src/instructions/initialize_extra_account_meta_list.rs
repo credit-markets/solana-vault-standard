@@ -55,10 +55,17 @@ pub struct InitializeExtraAccountMetaList<'info> {
     )]
     pub mint_config: Account<'info, MintConfig>,
 
-    /// Mint authority — must sign so a stranger can't init another
-    /// mint's extra-account-meta-list. We do NOT validate that this
-    /// matches `Mint::transfer_hook_authority` here; that invariant
-    /// is enforced at the mint-binding site.
+    /// Mint authority — MUST be the `Mint::mint_authority` recorded on
+    /// the bound Token-2022 mint. The handler verifies this by reading
+    /// the unpacked mint state and comparing with `mint_authority.key()`,
+    /// rejecting with `UnauthorizedAuthority` on mismatch. Without this
+    /// check, any signer could write the EAML for any mint (the
+    /// extra-account-meta-list PDA is seeded only by `mint`), which would
+    /// let a stranger pin a mint's hook-extra resolution to whatever
+    /// account list they choose. This is distinct from
+    /// `Mint::transfer_hook_authority`, which lives in the TransferHook
+    /// extension and gates mint-level hook re-binding rather than
+    /// per-mint EAML init.
     pub mint_authority: Signer<'info>,
 
     #[account(mut)]
@@ -68,6 +75,39 @@ pub struct InitializeExtraAccountMetaList<'info> {
 }
 
 pub fn handler(ctx: Context<InitializeExtraAccountMetaList>) -> Result<()> {
+    use anchor_lang::solana_program::program_pack::Pack;
+    use anchor_spl::token_2022::spl_token_2022;
+    use anchor_spl::token_2022::spl_token_2022::state::Mint as Token2022Mint;
+
+    // Reject legacy SPL mints — only Token-2022 mints can carry a
+    // TransferHook extension. Without this guard, the EAML init would
+    // succeed against a legacy mint, producing a configuration the
+    // runtime would never invoke.
+    require_keys_eq!(
+        *ctx.accounts.mint.owner,
+        spl_token_2022::id(),
+        crate::error::ComplianceHookError::InvalidMintAccount
+    );
+
+    // (audit #9) Verify the signer is the actual mint authority. The
+    // mint-config init does this; without it here, a stranger could
+    // race-create the EAML for a mint that has a MintConfig (or one
+    // they're about to MintConfig themselves), pinning it to the wrong
+    // EAML. Reading mint_authority off the unpacked mint avoids relying
+    // on the EAML PDA's `init` constraint as the only access gate.
+    let mint_data = ctx.accounts.mint.try_borrow_data()?;
+    let mint_state = Token2022Mint::unpack(&mint_data[..Token2022Mint::LEN])
+        .map_err(|_| crate::error::ComplianceHookError::InvalidMintAccount)?;
+    let mint_authority_opt: Option<Pubkey> = mint_state.mint_authority.into();
+    let actual_authority: Pubkey = mint_authority_opt
+        .ok_or(crate::error::ComplianceHookError::UnauthorizedAuthority)?;
+    drop(mint_data); // release the borrow before further mut access below.
+    require_keys_eq!(
+        actual_authority,
+        ctx.accounts.mint_authority.key(),
+        crate::error::ComplianceHookError::UnauthorizedAuthority
+    );
+
     let mode = ctx.accounts.mint_config.mode;
     let extra_metas = build_extra_account_metas(mode)?;
 
@@ -161,8 +201,41 @@ fn build_extra_account_metas(mode: ComplianceMode) -> Result<Vec<ExtraAccountMet
     ];
 
     if mode == ComplianceMode::Permissioned {
-        // source_attestation: SVS-11 Attestation PDA at
-        // [b"attestation", source_owner].
+        // ── ITERATION-2 KNOWN GAP — EAML attestation seed mismatch ────
+        // The two `attestation` extras below derive PDAs using the
+        // single-seed convention `[b"attestation", owner]` under THIS
+        // program (compliance-hook) — but the canonical SVS-11 / mock-sas
+        // attestation PDAs are seeded as
+        // `[b"attestation", subject, issuer, attestation_type]` under the
+        // attestation PROGRAM (not compliance-hook).
+        //
+        // Consequences with the current wiring:
+        //   - The Token-2022 runtime resolves a PDA that does NOT exist
+        //     (no one creates accounts at this address), so the runtime
+        //     passes a default-zero account.
+        //   - `execute::check_attestation` then fails with
+        //     `AttestationNotFound` (6002) on the existence check.
+        //   - Net effect: Permissioned mode is fail-CLOSED at runtime
+        //     (no transfer can succeed). It is NOT exploitable, but it
+        //     is also NOT functional.
+        //
+        // The defense-in-depth validation in `check_attestation` (owner
+        // / subject / issuer / type / canonical PDA) makes the failure
+        // mode safe even if a user tries to manually pass a different
+        // account list to the hook program directly.
+        //
+        // The proper fix (iteration 2) requires `new_external_pda_with_seeds`
+        // with `program_index` pointing to a fixed account whose key
+        // equals `mint_config.attestation_program`, plus seeds
+        // `[Literal(b"attestation"), AccountData(source_ata bytes 32..64),
+        // AccountData(mint_config.attestation_issuer field),
+        // AccountData(mint_config.attestation_type byte)]`. That requires
+        // adding an `attestation_program` extra account (capacity bump to
+        // 8) and updating the mint-config init flow to bake in the
+        // attestation program key. Documented in
+        // docs/compliance-hook.md "Iteration 2 follow-ups".
+
+        // source_attestation: PLACEHOLDER seed (see KNOWN GAP above).
         v.push(ExtraAccountMeta::new_with_seeds(
             &[
                 Seed::Literal {
@@ -177,7 +250,7 @@ fn build_extra_account_metas(mode: ComplianceMode) -> Result<Vec<ExtraAccountMet
             false,
             false,
         )?);
-        // destination_attestation: same shape, dest owner.
+        // destination_attestation: PLACEHOLDER seed (see KNOWN GAP above).
         v.push(ExtraAccountMeta::new_with_seeds(
             &[
                 Seed::Literal {

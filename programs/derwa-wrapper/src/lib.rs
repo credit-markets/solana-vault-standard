@@ -14,10 +14,16 @@ declare_id!("8zf7pTE29kmMHoGJCbKP6QRre9RPEPboPad7X3dGutsH");
 pub mod derwa_wrapper {
     use super::*;
 
-    /// Bind a pool to its (cPOOL, dePOOL) mint pair. One-shot per pool —
-    /// Anchor's `init` constraint on `wrapper_config` prevents re-init.
-    pub fn initialize(ctx: Context<InitializeWrapper>) -> Result<()> {
-        instructions::initialize::handler(ctx)
+    /// Bind a pool to its (cPOOL, dePOOL) mint pair + capture per-pool
+    /// trust anchors (attestation_program, attestation_issuer,
+    /// required_attestation_type) used by `unwrap` to validate the
+    /// destination wallet. One-shot per pool — Anchor's `init` constraint
+    /// on `wrapper_config` prevents re-init.
+    pub fn initialize(
+        ctx: Context<InitializeWrapper>,
+        args: InitializeWrapperArgs,
+    ) -> Result<()> {
+        instructions::initialize::handler(ctx, args)
     }
 
     /// Wrap permissioned cPOOL → freely-transferable dePOOL at 1:1.

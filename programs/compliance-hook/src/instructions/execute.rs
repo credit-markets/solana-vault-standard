@@ -63,25 +63,25 @@ pub struct Execute<'info> {
     /// Index 7.
     pub destination_frozen_check: UncheckedAccount<'info>,
 
-    /// CHECK: SVS-11 Attestation PDA for the source-ATA owner. Required only
-    /// when `mint_config.mode == Permissioned`; the EAML omits this entry in
-    /// `FreelyTransferable` mode, so the runtime passes `None`. The handler
-    /// requires `Some` only on the Permissioned branch.
+    /// CHECK: SVS-11-shaped Attestation PDA for the source-ATA owner. Required
+    /// only when `mint_config.mode == Permissioned`; the EAML omits this entry
+    /// in `FreelyTransferable` mode, so the runtime passes `None`. The handler
+    /// requires `Some` only on the Permissioned branch and validates the
+    /// account against `mint_config`'s trust anchors via `check_attestation`.
     /// Index 8 (Permissioned only).
     pub source_attestation: Option<UncheckedAccount<'info>>,
 
-    /// CHECK: SVS-11 Attestation PDA for the destination-ATA owner. Same
-    /// semantics as `source_attestation`.
+    /// CHECK: SVS-11-shaped Attestation PDA for the destination-ATA owner.
+    /// Same semantics as `source_attestation`.
     /// Index 9 (Permissioned only).
     pub destination_attestation: Option<UncheckedAccount<'info>>,
 
     /// CHECK: pool-policy PDA referenced by `mint_config.pool_policy`. The
     /// current implementation does NOT enforce any threshold (jurisdiction /
     /// investor_class / kyc_risk_tier) against this account — the
-    /// Permissioned arm only validates that both attestations exist + are
-    /// valid. The pool-policy extra is wired through the EAML for forward
-    /// compatibility with a future enforcement layer that will consume it.
-    /// The handler currently leaves this account untouched.
+    /// Permissioned arm only validates the trust-anchor binding via
+    /// `check_attestation`. The pool-policy extra is wired through the EAML
+    /// for forward compatibility with a future enforcement layer.
     /// Index 10 (Permissioned only).
     pub pool_policy: Option<UncheckedAccount<'info>>,
 }
@@ -121,6 +121,13 @@ pub fn handler(ctx: Context<Execute>) -> Result<()> {
     // marks the account as frozen. The runtime will pass the derived PDA
     // address even when the account doesn't exist; in that case lamports == 0
     // and data.len() == 0, so the booleans below stay false.
+    //
+    // NOTE (audit #7): the EAML derives these PDAs at `[b"frozen", owner]`
+    // under this program's ID, but compliance-hook does not yet ship a
+    // `freeze_account` / `unfreeze_account` instruction to populate that
+    // PDA space. So the freeze check is structurally present but
+    // operationally inert until those instructions are added — see
+    // docs/compliance-hook.md "Iteration 2 follow-ups".
     let src_frozen = ctx.accounts.source_frozen_check.lamports() > 0
         && ctx.accounts.source_frozen_check.data_len() > 0;
     let dst_frozen = ctx.accounts.destination_frozen_check.lamports() > 0
@@ -149,8 +156,24 @@ pub fn handler(ctx: Context<Execute>) -> Result<()> {
                 .as_ref()
                 .ok_or(ComplianceHookError::AttestationNotFound)?;
 
-            check_attestation(&src_att.to_account_info(), "source")?;
-            check_attestation(&dst_att.to_account_info(), "destination")?;
+            // Full identity-binding validation against the mint's trust
+            // anchors. Each call enforces the FIVE checks documented on
+            // `check_attestation` below. With these in place, even a
+            // manually-supplied Permissioned-mode account list cannot
+            // satisfy the hook with a foreign-owner / wrong-subject /
+            // wrong-issuer / wrong-type / mis-derived attestation.
+            check_attestation(
+                &src_att.to_account_info(),
+                &source_owner,
+                &ctx.accounts.mint_config,
+                "source",
+            )?;
+            check_attestation(
+                &dst_att.to_account_info(),
+                &dest_owner,
+                &ctx.accounts.mint_config,
+                "destination",
+            )?;
 
             // Future enforcement: pool_policy thresholds (jurisdiction /
             // investor_class / kyc_risk_tier) against the loaded attestations.
@@ -162,13 +185,31 @@ pub fn handler(ctx: Context<Execute>) -> Result<()> {
     }
 }
 
-/// Reads an SVS-11 Attestation account (raw, without anchor zero-copy) and
-/// validates it is present, non-revoked, and non-expired.
+/// Reads an SVS-11-shaped Attestation account (raw, without anchor zero-copy)
+/// and validates it against the mint's trust anchors.
+///
+/// Validation steps (each mapped to a distinct error code so failure mode is
+/// observable in logs / parsed events):
+///   1. **Owner**: `att.owner == mint_config.attestation_program`.
+///   2. **Existence + size**: `lamports > 0`, `data_len >= 129`.
+///   3. **Subject**: `payload[0..32] == expected_subject` (the ATA owner).
+///   4. **Issuer**: `payload[32..64] == mint_config.attestation_issuer`.
+///   5. **Type**: `payload[64] == mint_config.required_attestation_type`.
+///   6. **Revoked**: `payload[83] == 0`.
+///   7. **Not expired**: `now < payload[75..83]` (i64 LE).
+///   8. **Canonical PDA**: `Pubkey::create_program_address(
+///         [b"attestation", subject, issuer, attestation_type, bump],
+///         mint_config.attestation_program) == att.key()`.
+///
+/// (8) atomically binds (1)-(5) to the same physical account: a mismatch
+/// in subject / issuer / type produces a different PDA, which would fail
+/// (8) even if a forged payload could trick (3)-(5) individually.
 ///
 /// Layout is fixed by SVS-11's `Attestation` struct (see
-/// `programs/svs-11/src/attestation.rs`). We rely on field offsets — DO NOT
-/// desync this from svs-11 state without updating both sides. Current offset
-/// map (after the 8-byte Anchor discriminator):
+/// `programs/svs-11/src/attestation.rs`). Field offsets — DO NOT desync
+/// this from svs-11 state without updating both sides AND the parallel
+/// reader in `programs/derwa-wrapper/src/instructions/unwrap.rs`. Current
+/// offset map (after the 8-byte Anchor discriminator):
 ///   0..32    subject (Pubkey)
 ///   32..64   issuer (Pubkey)
 ///   64       attestation_type (u8)
@@ -182,7 +223,19 @@ pub fn handler(ctx: Context<Execute>) -> Result<()> {
 ///   119      investor_class (u8)
 ///   120      kyc_risk_tier (u8)
 /// Total: 121 bytes after discriminator (LEN = 8 + 121 = 129).
-fn check_attestation(att: &AccountInfo, label: &'static str) -> Result<()> {
+fn check_attestation(
+    att: &AccountInfo,
+    expected_subject: &Pubkey,
+    mint_config: &MintConfig,
+    label: &'static str,
+) -> Result<()> {
+    // (1) Owner = configured attestation program.
+    require!(
+        att.owner == &mint_config.attestation_program,
+        ComplianceHookError::InvalidAttestationProgram
+    );
+
+    // (2) Existence + size.
     require!(
         att.lamports() > 0 && att.data_len() > 0,
         ComplianceHookError::AttestationNotFound
@@ -192,16 +245,58 @@ fn check_attestation(att: &AccountInfo, label: &'static str) -> Result<()> {
     require!(data.len() >= 129, ComplianceHookError::AttestationNotFound);
 
     let payload = &data[8..];
-    // `try_into().unwrap()` is sound here: the slice length is fixed by the
-    // const-range above, and we've already bounds-checked `data.len() >= 129`
-    // (= 8 disc + 121 payload), so `payload[75..83]` is always 8 bytes.
-    let expires_at = i64::from_le_bytes(payload[75..83].try_into().unwrap()); // expires_at: i64
-    let revoked = payload[83] != 0; // revoked: bool
+    // try_into().unwrap() is sound here: data.len() >= 129 means
+    // payload[i..j] is always within bounds for the offsets below.
 
+    // (3) Subject = expected ATA owner.
+    let subject_bytes: [u8; 32] = payload[0..32].try_into().unwrap();
+    let subject = Pubkey::new_from_array(subject_bytes);
+    require!(
+        &subject == expected_subject,
+        ComplianceHookError::InvalidAttestationSubject
+    );
+
+    // (4) Issuer = mint-configured issuer.
+    let issuer_bytes: [u8; 32] = payload[32..64].try_into().unwrap();
+    let issuer = Pubkey::new_from_array(issuer_bytes);
+    require!(
+        issuer == mint_config.attestation_issuer,
+        ComplianceHookError::InvalidAttestationIssuer
+    );
+
+    // (5) Attestation type = mint-required type.
+    let attestation_type = payload[64];
+    require!(
+        attestation_type == mint_config.required_attestation_type,
+        ComplianceHookError::InvalidAttestationType
+    );
+
+    // (6) Not revoked.
+    let revoked = payload[83] != 0;
     require!(!revoked, ComplianceHookError::AttestationRevoked);
 
+    // (7) Not expired.
+    let expires_at = i64::from_le_bytes(payload[75..83].try_into().unwrap());
     let now = Clock::get()?.unix_timestamp;
     require!(now < expires_at, ComplianceHookError::AttestationExpired);
+
+    // (8) Canonical PDA derivation under the configured attestation program.
+    let bump = payload[84];
+    let expected_pda = Pubkey::create_program_address(
+        &[
+            b"attestation",
+            subject.as_ref(),
+            issuer.as_ref(),
+            &[attestation_type],
+            &[bump],
+        ],
+        &mint_config.attestation_program,
+    )
+    .map_err(|_| -> Error { error!(ComplianceHookError::InvalidAttestationPda) })?;
+    require!(
+        att.key() == expected_pda,
+        ComplianceHookError::InvalidAttestationPda
+    );
 
     msg!("attestation OK ({})", label);
     Ok(())

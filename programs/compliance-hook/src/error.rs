@@ -37,4 +37,22 @@ pub enum ComplianceHookError {
 
     #[msg("FreelyTransferable mode rejects a pool_policy (must be None)")]
     PoolPolicySetOnFreelyTransferable = 6011,
+
+    #[msg("Attestation account is not owned by the mint-configured attestation program")]
+    InvalidAttestationProgram = 6012,
+
+    #[msg("Attestation subject does not match the source/destination ATA owner")]
+    InvalidAttestationSubject = 6013,
+
+    #[msg("Attestation issuer does not match the mint-configured issuer")]
+    InvalidAttestationIssuer = 6014,
+
+    #[msg("Attestation type does not match the mint-required type")]
+    InvalidAttestationType = 6015,
+
+    #[msg("Attestation account address does not match the canonical PDA derivation")]
+    InvalidAttestationPda = 6016,
+
+    #[msg("attestation_program / attestation_issuer must be set (non-default) for Permissioned mode")]
+    InvalidAttestationConfig = 6017,
 }
