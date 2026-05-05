@@ -7,17 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Security — iteration-1 attestation hardening
+
+This iteration closes upstream-review-class identity-binding gaps on
+both attestation read sites. Pre-iteration-1 the unwrap and execute
+handlers only validated existence + revoked + expires_at on the
+attestation payload, never reading the `subject` / `issuer` / `type`
+fields. That meant any holder of dePOOL could pass any pre-existing
+valid attestation (e.g. a friend's KYC'd account) and either unwrap
+into permissioned cPOOL OR satisfy the Permissioned-mode hook on a
+foreign mint. The fix adds full identity binding via FIVE checks:
+
+1. **Owner**: attestation account `.owner == configured_program`
+2. **Subject**: `payload[0..32] == expected_wallet`
+3. **Issuer**: `payload[32..64] == configured_issuer`
+4. **Type**: `payload[64] == required_type`
+5. **Canonical PDA**: re-derives
+   `[b"attestation", subject, issuer, attestation_type, bump]` and
+   asserts `att.key()` matches.
+
+Iteration 2 extends the EAML wiring so Permissioned-mode transfers
+actually run against this validation (today they fail-CLOSED at the
+existence check because the EAML resolves a non-existent PDA — see
+`docs/compliance-hook.md::Iteration 2 follow-ups`).
 
 #### compliance-hook program (new)
-Generic Token-2022 `TransferHook` backend. Per-mint configuration drives transfer-time policy (sanctions list in both modes, plus attestation gating in Permissioned mode).
+Generic Token-2022 `TransferHook` backend. Per-mint configuration drives transfer-time policy (sanctions list in both modes, plus full identity-binding attestation gating in Permissioned mode).
 
 - `SanctionsList` PDA — singleton, authority-gated address list
-- `MintConfig` PDA (per-mint) — mode (`FreelyTransferable | Permissioned`) + optional `pool_policy`
-- `ExtraAccountMetaList` PDA (per-mint) — provisions Token-2022 hook account layout
+- `MintConfig` PDA (per-mint) — mode (`FreelyTransferable | Permissioned`) + optional `pool_policy` + iteration-1 trust anchors (`attestation_program`, `attestation_issuer`, `required_attestation_type`)
+- `ExtraAccountMetaList` PDA (per-mint) — provisions Token-2022 hook account layout. Permissioned-mode attestation extras use a placeholder seed convention pending iteration-2 cross-program PDA wiring; the FAIL-CLOSED behavior is documented in the source and `docs/compliance-hook.md`.
 - Instructions: `initialize_sanctions_list`, `update_sanctions_list`, `initialize_mint_config`, `initialize_extra_account_meta_list`, `execute`
+- `initialize_mint_config` now validates `mint.owner == spl_token_2022::id()` (rejects legacy SPL mints) AND requires non-default trust anchors when `mode == Permissioned`.
+- `initialize_extra_account_meta_list` now reads the unpacked Mint and verifies the signer matches `Mint::mint_authority` (closes the prior over-claim).
+- `check_attestation` now performs the FIVE identity-binding checks plus `revoked` + `expires_at` (was 3 checks; now 7).
 - Events: `SanctionsListUpdated`
-- Errors: `SanctionedAddress`, `AttestationNotFound`, `IncorrectAccount`, `MissingPoolPolicyForPermissioned`, `PoolPolicySetOnFreelyTransferable`, `InvalidMintAccount`
+- Errors: `SanctionedAddress`, `AttestationNotFound`, `AttestationRevoked`, `AttestationExpired`, `MissingPoolPolicyForPermissioned`, `PoolPolicySetOnFreelyTransferable`, `InvalidMintAccount`, plus iteration-1: `InvalidAttestationProgram` (6012), `InvalidAttestationSubject` (6013), `InvalidAttestationIssuer` (6014), `InvalidAttestationType` (6015), `InvalidAttestationPda` (6016), `InvalidAttestationConfig` (6017).
 - See `docs/compliance-hook.md`.
 
 #### nav-oracle program (new)
@@ -34,11 +59,13 @@ Per-pool NAV oracle for credit-grade pricing. Off-chain publisher signs a canoni
 #### derwa-wrapper program (new)
 1:1 wrap between a closed permissioned mint (cPOOL) and an open Token-2022 mint (dePOOL) with attestation-gated unwrap.
 
-- `WrapperConfig` PDA (per-pool) — binds (pool, permissioned mint, deRWA mint)
+- `WrapperConfig` PDA (per-pool) — binds (pool, permissioned mint, deRWA mint) AND captures iteration-1 trust anchors (`attestation_program`, `attestation_issuer`, `required_attestation_type`) used by `unwrap` to validate destination wallets
 - `wrapper_signer` PDA — token authority on the cPOOL escrow ATA + mint+freeze authority on dePOOL
-- Instructions: `initialize`, `wrap` (cPOOL → dePOOL), `unwrap` (dePOOL → cPOOL, attestation-gated)
-- Errors: includes `Unauthorized`, `InvalidAttestation`, supply-conservation guards
+- Instructions: `initialize` (now takes `InitializeWrapperArgs` with the trust anchors), `wrap` (cPOOL → dePOOL), `unwrap` (dePOOL → cPOOL, attestation-gated with iteration-1 FIVE-step identity binding)
+- `unwrap` performs full attestation validation BEFORE the cPOOL transfer CPI: owner / subject / issuer / type / canonical PDA + revoked + expires_at. The pre-iteration-1 implementation only validated existence + revoked + expires_at and was vulnerable to a foreign-attestation attack (any holder of dePOOL could pass any KYC'd wallet's attestation and unwrap).
+- Errors: `ZeroAmount`, `AttestationRequired`, `InsufficientLockedSupply`, `MintMismatch`, plus iteration-1: `InvalidAttestationProgram` (8004), `InvalidAttestationSubject` (8005), `InvalidAttestationIssuer` (8006), `InvalidAttestationType` (8007), `InvalidAttestationPda` (8008), `InvalidAttestationConfig` (8009).
 - Mechanism: wrap deposits cPOOL into a wrapper-owned escrow + mints dePOOL; unwrap burns dePOOL + transfers cPOOL out of escrow. The wrapper has NO mint authority on cPOOL.
+- iteration-2 follow-ups: forward `remaining_accounts` to the wrap/unwrap CPIs so an active Permissioned-mode hook on cPOOL has its EAML extras resolved at CPI time. See `docs/derwa-wrapper.md::Iteration 2 follow-ups`.
 - See `docs/derwa-wrapper.md`.
 
 #### SVS-11: NAV oracle extensibility

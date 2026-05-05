@@ -237,9 +237,9 @@ The redemption escrow account that SVS-11 creates is sized for the `TransferHook
 | `SanctionsList::MAX_ADDRESSES` | `256` | Capacity bound for the addresses Vec |
 | `SanctionsList::SPACE` | `8252` | Account allocation size |
 | `MintConfig::SEED_PREFIX` | `b"mint_config"` | PDA seed literal prefix (suffix: mint pubkey) |
-| `MintConfig::SPACE` | `74` | Account allocation size |
+| `MintConfig::SPACE` | `139` | Account allocation size (post-attestation-fields extension) |
 | `EXTRA_ACCOUNT_METAS_SEED` | `b"extra-account-metas"` | Token-2022 canonical seed for the EAML PDA — hyphen, NOT underscore |
-| `MAX_EXTRA_METAS` | `7` | Capacity sizing for the EAML (Permissioned mode count) |
+| `MAX_EXTRA_METAS` | `7` | Capacity sizing for the EAML (Permissioned mode count, iteration 1) |
 
 The program declares `declare_id!("6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P")`. See [CONSTANTS.md](CONSTANTS.md) for the full program-ID registry.
 
@@ -253,6 +253,63 @@ The program declares `declare_id!("6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P"
 - `programs/compliance-hook/src/instructions/initialize_extra_account_meta_list.rs`
 - `programs/compliance-hook/src/instructions/update_sanctions_list.rs`
 - `programs/compliance-hook/src/instructions/execute.rs`
+
+## Iteration 2 follow-ups
+
+This section captures known gaps in the iteration-1 implementation that are
+deliberately deferred. Each is a structural concern flagged during upstream
+review; they are NOT exploitable in the current state but block the program
+from being fully functional in Permissioned mode.
+
+### EAML cross-program PDA derivation (audit #2)
+
+The Permissioned-mode EAML in
+`initialize_extra_account_meta_list.rs` declares attestation extras using
+the seed convention `[b"attestation", source_owner_bytes_from_ATA]`
+derived under the compliance-hook program ID. The canonical SVS-11 /
+mock-sas attestation PDAs are seeded as
+`[b"attestation", subject, issuer, attestation_type]` derived under the
+attestation program (NOT compliance-hook). Consequence: the Token-2022
+runtime resolves PDAs that do not exist, the runtime passes default-zero
+accounts, and `execute::check_attestation` fails-CLOSED on its existence
+check (`AttestationNotFound`, 6002).
+
+This means Permissioned mode currently REJECTS ALL TRANSFERS. It is fail-
+closed (safe) but not functional. The proper fix:
+
+1. Use `ExtraAccountMeta::new_external_pda_with_seeds` instead of
+   `new_with_seeds` so the runtime derives under a foreign program ID.
+2. Add an `attestation_program` extra account at a fixed slot (capacity
+   bumps from 7 to 8) so `program_index` can reference it; or use a
+   `Seed::AccountKey` against the MintConfig and pull the program key
+   from a fixed offset.
+3. Replace the single-seed `[b"attestation", owner]` with the canonical
+   four-seed convention, sourcing `issuer` and `attestation_type` from
+   `MintConfig` data offsets via `Seed::AccountData`.
+4. Add Token-2022 + mint + EAML scaffolding to
+   `tests/compliance-hook.spec.ts` to exercise a real Permissioned-mode
+   transfer end-to-end.
+
+The defense-in-depth validation in `check_attestation` (owner / subject /
+issuer / type / canonical PDA) makes the failure mode safe even if a
+user manually passes a non-default account list to the hook.
+
+### Freeze instructions (audit #7)
+
+The EAML derives frozen-check PDAs at `[b"frozen", owner]` under
+compliance-hook, and `execute` reads their existence to enforce
+freezes. But compliance-hook does not yet ship `freeze_account` or
+`unfreeze_account` instructions — there is no on-chain path to populate
+the frozen PDA space, so the freeze check is structurally present but
+operationally inert (every owner reads as not-frozen).
+
+The intended design is a separate global freeze registry (one PDA per
+frozen owner) gated by the same `SanctionsList.authority` (Ops Guardian
+multisig), distinct from SVS-11's per-vault `[b"frozen_account", vault,
+investor]` freezes. The `freeze_account` ix authority signs, then the
+program creates a `[b"frozen", owner]` PDA with non-empty data;
+`unfreeze_account` closes the PDA back to lamport zero. Iteration 2
+will add these two instructions plus tests.
 
 ## See Also
 

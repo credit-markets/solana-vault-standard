@@ -38,9 +38,9 @@ anchor test
 
 # Run new program tests individually
 anchor test -- tests/svs-11.ts                    # SVS-11 CreditVault (58 tests)
-anchor test -- tests/compliance-hook.spec.ts      # compliance-hook (15 tests)
+anchor test -- tests/compliance-hook.spec.ts      # compliance-hook (2 active, 13 skipped placeholders)
 anchor test -- tests/nav-oracle.spec.ts           # nav-oracle (5 tests)
-anchor test -- tests/derwa-wrapper.spec.ts        # derwa-wrapper (3 tests)
+anchor test -- tests/derwa-wrapper.spec.ts        # derwa-wrapper (4 tests, includes subject-mismatch security check)
 
 # Start proof backend first (required for SVS-3/SVS-4 CT tests)
 cd proofs-backend && cargo run
@@ -95,15 +95,33 @@ Located in `tests/`:
 | `full-lifecycle.ts` | End-to-end flows | 8 |
 | `svs-10.ts` | SVS-10 async vault lifecycle, operators, oracle | 88 |
 | `svs-11.ts` | SVS-11 CreditVault lifecycle, oracle source toggle, NavOracle opt-in | 58 |
-| `compliance-hook.spec.ts` | TransferHook sanctions list, permissioned/freely transferable mode | 15 |
+| `compliance-hook.spec.ts` | TransferHook sanctions list (2 active); 13 placeholders documenting intended FreelyTransferable/Permissioned/EAML coverage that lands when the iteration-2 EAML cross-program PDA wiring is in place. The placeholders use `it.skip` so they're visible-but-pending and don't inflate the test count. | 2 active + 13 skipped |
 | `nav-oracle.spec.ts` | NavOracle publishing, sequence monotonicity, self-consistency, wrong-publisher rejection, wrong-rotation-authority rejection | 5 |
-| `derwa-wrapper.spec.ts` | cPOOL → dePOOL wrap + attestation-gated unwrap | 3 |
+| `derwa-wrapper.spec.ts` | cPOOL → dePOOL wrap + attestation-gated unwrap + subject-mismatch security check (foreign attestation rejected with `InvalidAttestationSubject` 8005) | 4 |
 | `create-derwa-mint-script.spec.ts` | dePOOL mint creation script (MintConfig + EAML wiring) | 1 |
-| **Total** | | **426** |
+| **Total** | (active) | **414** |
 
 **SVS-11 NAV oracle additions:** 3 new test cases were added in this PR to cover the oracle-source toggle and the NavOracle adapter path — `authority can switch oracle source between mock and nav-oracle`, `can opt into NavOracle for credit-market NAV reads`, and `rejects NavOracle opt-in approval when the NavAccount PDA is missing`.
 
 **nav-oracle reviewer-class additions:** 2 additional security-class edge cases were added — `rejects update signed by a key that is NOT the registered publisher` and `rejects rotate_publisher signed by a key that is NOT the rotation authority`.
+
+**derwa-wrapper iteration-1 security addition:** 1 new test added —
+`rejects unwrap when attestation belongs to a DIFFERENT subject (8005)`.
+Pre-iteration-1 the unwrap handler did NOT read the attestation
+`subject` field, so any holder of dePOOL could pass any pre-existing
+valid attestation (e.g. a friend's KYC'd account) and unwrap into
+permissioned cPOOL — this test proves the iteration-1 fix
+(`InvalidAttestationSubject` rejection) holds.
+
+**compliance-hook tests are 2 active + 13 skipped placeholders.** The
+active tests cover the sanctions-list authority paths. The 13 skipped
+placeholders document Permissioned/FreelyTransferable/EAML coverage
+that requires Token-2022 mint scaffolding (mint with hook extension,
+MintConfig, EAML, attestations). They land alongside the iteration-2
+EAML cross-program PDA wiring described in
+[compliance-hook.md](./compliance-hook.md#iteration-2-follow-ups).
+Calling them out as skipped (rather than counting them as passing) is
+the upstream-review-correct posture.
 
 **Note:** SVS-3/SVS-4 confidential transfer tests require the proof backend running (`cd proofs-backend && cargo run`). Without it, CT-dependent tests are automatically skipped.
 

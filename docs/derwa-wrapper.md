@@ -107,15 +107,48 @@ Binds a pool to its `(cPOOL, dePOOL)` mint pair by creating the per-pool `Wrappe
 
 ### unwrap (dePOOL → cPOOL)
 
-1:1 burn dePOOL, release cPOOL from the wrapper escrow back to the investor. **Attestation-gated.**
+1:1 burn dePOOL, release cPOOL from the wrapper escrow back to the investor. **Attestation-gated with full identity binding.**
 
 **Steps:**
-1. Validate `investor_attestation` PDA: account exists, has data, payload is at least 121 bytes, `revoked == false`, `expires_at > now`.
+1. Validate `investor_attestation` PDA via the FIVE-step trust-anchor check
+   (`unwrap.rs::validate_investor_attestation`):
+   - **Owner**: `att.owner == wrapper_config.attestation_program`.
+   - **Subject**: `payload[0..32] == investor.key()` — atomically binds
+     the attestation to THIS investor.
+   - **Issuer**: `payload[32..64] == wrapper_config.attestation_issuer`.
+   - **Type**: `payload[64] == wrapper_config.required_attestation_type`.
+   - **Canonical PDA**: re-derives
+     `[b"attestation", subject, issuer, attestation_type, bump]` under
+     the configured attestation program and asserts it equals
+     `att.key()`.
+
+   Plus the existing `revoked == false` and `expires_at > now` checks.
 2. `burn` dePOOL from `investor_derwa_ata` (signed by investor).
-3. `transfer_checked` cPOOL from `wrapper_locked_ata` → `investor_permissioned_ata` (signed by `wrapper_signer` PDA). The Permissioned ComplianceHook on this transfer also enforces attestation — defence-in-depth against a misconfigured hook.
+3. `transfer_checked` cPOOL from `wrapper_locked_ata` →
+   `investor_permissioned_ata` (signed by `wrapper_signer` PDA). The
+   Permissioned ComplianceHook on this transfer will ALSO enforce
+   attestation once the EAML cross-program PDA wiring lands — until then
+   the step-1 check is the sole gate. See "Iteration 2 follow-ups" in
+   `compliance-hook.md`.
 4. `locked_supply -= amount`.
 
-**Why attestation is required:** cPOOL is permissioned. dePOOL is liquid — anyone can buy it on a DEX. Without the gate, a non-KYB buyer could buy dePOOL and unwrap it to obtain permissioned cPOOL, defeating the entire Permissioned mode.
+**Why each layer matters:** cPOOL is permissioned. dePOOL is liquid —
+anyone can buy it on a DEX. Without the FULL identity binding, a non-KYB
+buyer could either:
+
+- (a) Pass a STRANGER'S valid attestation (any KYC'd wallet's PDA) and
+  unwrap into permissioned cPOOL. Pre-iteration-1 the unwrap handler
+  did NOT read the `subject` field — this exact attack worked.
+- (b) Pass a low-tier attestation against a vault that requires a
+  higher tier (e.g. generic KYC vs accredited investor). The
+  attestation_type check (4) prevents this.
+- (c) Forge an attestation account in a different program. The owner
+  check (1) prevents this.
+
+The defense-in-depth `transfer_checked` hook step (3) catches any of
+these if the explicit check is somehow bypassed (today: not possible
+because the explicit check is on the same program), tomorrow: yes once
+the hook is fully wired.
 
 **Attestation layout** (must stay in sync with `compliance-hook::execute::check_attestation` and SVS-11's `Attestation` struct):
 
@@ -196,8 +229,46 @@ programs/derwa-wrapper/src/
     └── unwrap.rs                   // burn dePOOL, escrow → cPOOL (1:1, attestation-gated)
 ```
 
+## Iteration 2 follow-ups
+
+### Wrap CPI remaining_accounts forwarding
+
+The cPOOL `transfer_checked` CPI in `wrap.rs` does not currently forward
+`remaining_accounts` to the Token-2022 TransferHook. Top-level user
+transactions get auto-resolution from the runtime; CPIs do NOT. Once
+the compliance-hook EAML cross-program PDA wiring lands (see
+`compliance-hook.md::Iteration 2 follow-ups`), an active Permissioned-mode
+hook on cPOOL would cause every wrap/unwrap CPI to fail with the hook's
+"missing extras" error.
+
+The fix: extend `Wrap` and `Unwrap` accounts structs to carry
+`remaining_accounts: Vec<AccountInfo>` and forward them to the CPI via
+`with_remaining_accounts()`. The set of extras must match the EAML the
+Permissioned cPOOL mint declares — the SDK's wrapping/unwrapping
+helpers should resolve this automatically (read EAML, derive extras,
+pass through).
+
+### Hook-side attestation for the wrapper PDA
+
+`wrap`'s cPOOL transfer goes investor → `wrapper_signer` PDA's ATA.
+The destination of that transfer is the wrapper PDA, which is NOT a
+KYB'd wallet. With the current attestation-binding semantics, any wrap
+would fail the Permissioned hook's destination-attestation check.
+
+Two resolution paths considered:
+1. Issue a "system" attestation to the `wrapper_signer` PDA in the same
+   attestation program as the regular investor attestations. Cleanest,
+   but couples wrapper deployment to the attestation issuer.
+2. Add a "wrapper-PDA-bound transfers are FreelyTransferable" rule to
+   compliance-hook's `execute` handler — recognized by checking
+   `destination_owner == wrapper_signer_pda` against a list of
+   wrapper-program-derived PDAs.
+
+Iteration 2 will pick one based on the operator workflow.
+
 ## See Also
 
 - [SVS-11.md](./SVS-11.md) — CreditVault (issues cPOOL, owns cPOOL mint authority)
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — Cross-program design
 - [SECURITY.md](./SECURITY.md) — Authority and attestation model
+- [compliance-hook.md](./compliance-hook.md#iteration-2-follow-ups) — EAML and freeze ix follow-ups
