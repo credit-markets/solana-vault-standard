@@ -315,6 +315,7 @@ bower_components
 *.tgz
 .yarn-integrity
 .yarn/
+.pnp.*
 .eslintcache
 .stylelintcache
 .cache
