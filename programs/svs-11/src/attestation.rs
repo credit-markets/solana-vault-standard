@@ -23,9 +23,9 @@ use crate::state::CreditVault;
 ///   83       revoked (bool)
 ///   84       bump (u8)
 ///   85..117  _reserved ([u8; 32])
-///   117..119 jurisdiction ([u8; 2])  -- NEW (P0 ComplianceHook metadata)
-///   119      investor_class (u8)     -- NEW
-///   120      kyc_risk_tier (u8)      -- NEW
+///   117..119 jurisdiction ([u8; 2])  -- added with the ComplianceHook metadata extension
+///   119      investor_class (u8)     -- added with the ComplianceHook metadata extension
+///   120      kyc_risk_tier (u8)      -- added with the ComplianceHook metadata extension
 #[derive(AnchorDeserialize)]
 pub struct Attestation {
     pub subject: Pubkey,
@@ -52,8 +52,8 @@ pub struct Attestation {
 }
 
 impl Attestation {
-    // Existing layout (117 bytes): 8 disc + 32 + 32 + 1 + 2 + 8 + 8 + 1 + 1 + 32
-    // P0 metadata extension (+4 bytes): 2 jurisdiction + 1 investor_class + 1 kyc_risk_tier
+    // Original layout (117 bytes): 8 disc + 32 + 32 + 1 + 2 + 8 + 8 + 1 + 1 + 32
+    // ComplianceHook metadata extension (+4 bytes): 2 jurisdiction + 1 investor_class + 1 kyc_risk_tier
     pub const LEN: usize = 8 + 32 + 32 + 1 + 2 + 8 + 8 + 1 + 1 + 32 + 2 + 1 + 1;
 }
 

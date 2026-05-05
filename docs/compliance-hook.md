@@ -164,8 +164,8 @@ Removals apply first, then additions (already-present entries are skipped). The 
 | 6004 | `AttestationExpired` | Destination attestation has expired |
 | 6005 | `SanctionsListFull` | Sanctions list update would exceed max capacity (256) |
 | 6006 | `UnauthorizedAuthority` | Update authority does not match `SanctionsList.authority` (or `mint_authority` mismatch on mint binding) |
-| 6007 | `InvestorClassTooLow` | Pool policy requires higher investor class than attestation provides (reserved for P1) |
-| 6008 | `JurisdictionNotPermitted` | Pool policy does not permit this jurisdiction (reserved for P1) |
+| 6007 | `InvestorClassTooLow` | Pool policy requires higher investor class than attestation provides (reserved for a follow-up enforcement layer) |
+| 6008 | `JurisdictionNotPermitted` | Pool policy does not permit this jurisdiction (reserved for a follow-up enforcement layer) |
 | 6009 | `InvalidMintAccount` | Mint account does not deserialize as a valid Token-2022 mint |
 | 6010 | `MissingPoolPolicyForPermissioned` | `Permissioned` mode requires a `pool_policy` |
 | 6011 | `PoolPolicySetOnFreelyTransferable` | `FreelyTransferable` mode rejects a `pool_policy` (must be `None`) |

@@ -152,10 +152,11 @@ pub fn handler(ctx: Context<Execute>) -> Result<()> {
             check_attestation(&src_att.to_account_info(), "source")?;
             check_attestation(&dst_att.to_account_info(), "destination")?;
 
-            // P1: enforce pool_policy thresholds (jurisdiction / investor_class /
-            // kyc_risk_tier) against the loaded attestations. P0 leaves
-            // `pool_policy` wired but unread — the EAML still resolves it so
-            // a future upgrade can flip the enforcement on without re-init.
+            // Future enforcement: pool_policy thresholds (jurisdiction /
+            // investor_class / kyc_risk_tier) against the loaded attestations.
+            // The current handler leaves `pool_policy` wired but unread — the
+            // EAML still resolves it so a future upgrade can flip the
+            // enforcement on without re-init.
             Ok(())
         }
     }
