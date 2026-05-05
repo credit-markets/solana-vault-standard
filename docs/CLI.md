@@ -1097,6 +1097,78 @@ solana-vault fees show my-vault
 
 ---
 
+## Supporting Program Commands
+
+The CLI also exposes commands for the supporting programs that ship in the workspace.
+
+### `compliance` group — manage the compliance-hook program
+
+```bash
+# Initialize the singleton SanctionsList PDA (one-time per deployment)
+solana-vault compliance init-sanctions-list [--authority <pubkey>]
+
+# Add or remove sanctioned addresses
+solana-vault compliance update-sanctions-list \
+  --add <pk1>,<pk2> \
+  --remove <pk3>
+
+# Create a per-mint config (Permissioned mode requires --pool-policy)
+solana-vault compliance init-mint-config <mint> \
+  --mode <freely-transferable|permissioned> \
+  [--pool-policy <pubkey>]
+
+# Provision the Token-2022 ExtraAccountMetaList PDA for a mint
+solana-vault compliance init-eaml <mint>
+```
+
+### `nav` group — manage the nav-oracle program
+
+```bash
+# Create the per-pool NavAccount PDA
+solana-vault nav init <pool> \
+  --publisher <pubkey> \
+  --rotation-authority <pubkey>
+
+# Publish a signed NAV update (requires publisher Keypair file)
+solana-vault nav publish <pool> \
+  --nav-net <u64> --nav-gross <u64> \
+  --ter-bps <u16> --loss-bps <u16> \
+  --nav-type <u8> --timestamp <i64> --sequence <u64> \
+  --merkle-root <hex64> \
+  --publisher-secret <path>
+
+# Rotate the publisher pubkey (caller must be key_rotation_authority)
+solana-vault nav rotate-publisher <pool> --new-publisher <pubkey>
+```
+
+### `derwa` group — manage the derwa-wrapper program
+
+```bash
+# Bind pool ↔ (cPOOL, dePOOL) into a WrapperConfig
+solana-vault derwa init <pool> \
+  --permissioned-mint <pubkey> \
+  --derwa-mint <pubkey>
+
+# Wrap cPOOL into dePOOL 1:1 (caller is the cPOOL holder)
+solana-vault derwa wrap --amount <u64>
+
+# Unwrap dePOOL back to cPOOL (attestation-gated)
+solana-vault derwa unwrap --amount <u64> --attestation <pubkey>
+```
+
+### `set-oracle-source` (SVS-11)
+
+```bash
+# Switch the vault between simple oracle (0) and NavOracle adapter (1)
+solana-vault set-oracle-source <vault> --source <0|1>
+```
+
+All supporting-program commands honor the standard global flags (`--dry-run`, `--yes`, `--keypair`, `--url`, `--output`).
+
+See per-program docs for full account layouts and instruction details: [compliance-hook](./compliance-hook.md), [nav-oracle](./nav-oracle.md), [derwa-wrapper](./derwa-wrapper.md).
+
+---
+
 ## See Also
 
 - [SDK Documentation](./SDK.md) - TypeScript SDK reference

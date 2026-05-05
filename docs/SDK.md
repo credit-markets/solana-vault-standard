@@ -325,6 +325,73 @@ const userAssetAccount = vault.getUserAssetAccount(userPublicKey);
 const offset = await vault.getDecimalsOffset();
 ```
 
+## Supporting Program Clients
+
+The SDK also exposes TypeScript clients for the supporting programs that ship in the workspace. These are not vault variants — they're infrastructure that any SVS deployment can compose with.
+
+### ComplianceHook Class
+
+Token-2022 `TransferHook` backend. Manages a singleton `SanctionsList` PDA plus per-mint `MintConfig` and `ExtraAccountMetaList` PDAs.
+
+```typescript
+import { ComplianceHook, ComplianceMode } from "@stbr/solana-vault";
+
+// Initialize the singleton sanctions list (one-time, per-deployment)
+const hook = await ComplianceHook.create(program, { authority });
+
+// Create a per-mint config — Permissioned mode requires a pool_policy
+await ComplianceHook.initializeMintConfig(program, {
+  mint,
+  mode: ComplianceMode.permissioned(),
+  poolPolicy,
+  mintAuthority: keypair,
+});
+
+// Add/remove sanctioned addresses
+await hook.updateSanctionsList({ authority: keypair, additions: [...], removals: [...] });
+```
+
+### NavOracle Class
+
+Per-pool NAV oracle with signed publisher payloads. Off-chain publisher signs a canonical 133-byte payload; the on-chain handler verifies the signature via an `Ed25519Program` instruction scan.
+
+```typescript
+import { NavOracle, buildSigningPayload } from "@stbr/solana-vault";
+
+// Create a NavAccount for a pool
+await NavOracle.initialize(program, payer, {
+  pool,
+  publisher: publisherKeypair.publicKey,
+  keyRotationAuthority,
+});
+
+// Publish a NAV update (signed off-chain)
+await NavOracle.update(program, {
+  pool,
+  args: { navNet, navGross, terBps, lossBps, navType, timestamp, sequence, loanTapeMerkleRoot, signature },
+  additionalSigners: [publisherKeypair],
+});
+```
+
+### DeRwaWrapper Class
+
+1:1 wrap between a closed permissioned mint (cPOOL) and an open Token-2022 mint (dePOOL). Wrap is permissioned-by-construction; unwrap is attestation-gated.
+
+```typescript
+import { DeRwaWrapper } from "@stbr/solana-vault";
+
+// Bind pool ↔ (cPOOL, dePOOL)
+await DeRwaWrapper.initialize(program, payer, { pool, permissionedMint, derwaMint });
+
+// Wrap cPOOL → dePOOL (caller signs as cPOOL holder)
+await DeRwaWrapper.wrap(program, user, { user, amount });
+
+// Unwrap dePOOL → cPOOL (requires valid attestation on destination)
+await DeRwaWrapper.unwrap(program, user, { user, amount, attestation });
+```
+
+See per-program docs for full instruction lists, account layouts, and security notes: [compliance-hook](compliance-hook.md), [nav-oracle](nav-oracle.md), [derwa-wrapper](derwa-wrapper.md).
+
 ## PDA Functions
 
 Low-level PDA derivation helpers.
