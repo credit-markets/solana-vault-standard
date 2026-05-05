@@ -78,7 +78,7 @@ async function deployVault(
       key: payer.publicKey,
       permissions: multisig.types.Permissions.all(),
     }],
-    timeLock: 0, // P0.10 has no timelock; P1.1 adds 48h for Protocol Guardian
+    timeLock: 0, // Initial deploy has no timelock; future hardening can add a 48h delay for the Protocol Guardian.
     createKey,
     rentCollector: null,
     treasury,
@@ -135,7 +135,7 @@ async function main() {
   }, null, 2));
   console.log(`\nWrote vault addresses to ${out}`);
   console.log(`\n⚠️  NEXT STEP: run \`pnpm tsx scripts/bootstrap-signers.ts\` to ratchet through Stages 1-3.`);
-  console.log(`    Do NOT begin authority migration (Task 14) until bootstrap_stage === "stage_3_verified".`);
+  console.log(`    Do NOT begin authority migration until bootstrap_stage === "stage_3_verified".`);
 }
 
 main().catch((e) => {

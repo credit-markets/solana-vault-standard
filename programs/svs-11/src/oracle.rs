@@ -77,7 +77,7 @@ pub fn read_and_validate_oracle(
     Ok(data.price_per_share)
 }
 
-/// Plan B canonical NAV reader. Reads a `NavAccount` PDA owned by the
+/// Canonical NAV reader. Reads a `NavAccount` PDA owned by the
 /// nav-oracle program and returns the validated `nav_net` price after:
 ///
 /// 1. Existence check (lamports > 0, data populated).

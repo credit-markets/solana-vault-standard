@@ -242,8 +242,8 @@ pub fn handler(
     // down favors the vault: a residual sub-1-share dust never burns more
     // than the ratio actually allows.
     //
-    // CRITICAL precedence note (Plan C audit 2026-04-27): Rust's `as u64`
-    // binds tighter than `/`, so we MUST parenthesize the division before
+    // CRITICAL precedence note: Rust's `as u64` binds tighter than `/`,
+    // so we MUST parenthesize the division before
     // the cast. The form `(((remaining as u128) * ratio) / 1e18) as u64`
     // is correct; `(remaining as u128) * ratio / 1e18 as u64` would
     // truncate `1e18` to `u64::MAX` first and produce nonsense.

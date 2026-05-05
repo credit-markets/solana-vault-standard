@@ -9,7 +9,7 @@ pub const CLAIMABLE_TOKENS_SEED: &[u8] = b"claimable_tokens";
 pub const FROZEN_ACCOUNT_SEED: &[u8] = b"frozen_account";
 pub const VAULT_CONFIG_SEED: &[u8] = b"vault_config";
 
-/// Seed for the per-pool NavAccount PDA in the nav-oracle program (Plan B).
+/// Seed for the per-pool NavAccount PDA in the nav-oracle program.
 /// Mirrors `nav_oracle::state::NavAccount::SEED_PREFIX`. Hard-coded here so
 /// SVS-11 does not depend on the nav-oracle crate at compile time.
 pub const NAV_ORACLE_SEED: &[u8] = b"nav_oracle";

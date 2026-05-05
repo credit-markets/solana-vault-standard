@@ -41,8 +41,8 @@ pub struct InitializePool<'info> {
 
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
 
-    /// CHECK: Shares mint (cPOOL) initialized via CPI in handler. Plan C
-    /// Task 3 Step 3b binds Token-2022 TransferHook extension pointing at
+    /// CHECK: Shares mint (cPOOL) initialized via CPI in handler. The
+    /// handler binds the Token-2022 TransferHook extension pointing at
     /// COMPLIANCE_HOOK_PROGRAM_ID before mint init so all shares-mint
     /// transfers route through the compliance-hook program.
     #[account(
