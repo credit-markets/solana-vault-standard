@@ -9,6 +9,7 @@ import {
   SystemProgram,
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from "@solana/web3.js";
+import * as nacl from "tweetnacl";
 
 import {
   NAV_ORACLE_PROGRAM_ID,
@@ -290,6 +291,29 @@ export class NavOracle {
   }
 
   /**
+   * Sign a canonical NAV signing payload with the publisher's secret key.
+   *
+   * Returns the 64-byte Ed25519 detached signature that
+   * {@link NavOracle.update} accepts in `args.signature`. Callers using a
+   * KMS-managed publisher key (production HSM flow) can implement
+   * equivalent signing externally — the SDK accepts ANY 64-byte
+   * signature in `args.signature` so long as it verifies against the
+   * canonical payload + the on-chain publisher key.
+   *
+   * Local-key flow (tests, devnet operator scripts) should use this
+   * helper directly. The previous API required callers to bring their
+   * own crypto, which the `nav publish` CLI got wrong (it passed a
+   * 64-byte zero placeholder).
+   */
+  static signPayload(
+    publisher: Keypair,
+    fields: SigningPayloadFields,
+  ): Uint8Array {
+    const payload = buildSigningPayload(fields);
+    return nacl.sign.detached(payload, publisher.secretKey);
+  }
+
+  /**
    * End-to-end NAV update — composes the Ed25519 verify ix + the program
    * `update` ix into a single transaction and submits it through the
    * provider attached to `program`.
@@ -297,6 +321,23 @@ export class NavOracle {
    * The publisher key is read from the on-chain NavAccount (so callers
    * don't have to re-fetch it). The signature MUST be over the canonical
    * payload returned by {@link buildSigningPayload}.
+   *
+   * Two signing flows:
+   *
+   * 1. **Caller-provided signature** (`params.args.signature`): the
+   *    caller computes a 64-byte Ed25519 signature ahead of time —
+   *    typical for KMS / HSM publishers where the secret key is not
+   *    accessible to the SDK. The SDK uses the supplied bytes verbatim.
+   *
+   * 2. **Local Keypair signing** (`params.publisher`): pass a
+   *    `Keypair` and the SDK signs the canonical payload internally
+   *    via {@link NavOracle.signPayload} before composing the verify
+   *    ix. Convenient for tests and devnet operator flows.
+   *
+   * If both are provided, `params.publisher` wins (the SDK overwrites
+   * `args.signature` with a fresh signature). If neither is provided
+   * with a non-zero signature, the on-chain handler will reject the
+   * update at the Ed25519 precompile verify ix.
    *
    * Optional `additionalSigners` lets callers pass extra signers (e.g.
    * a fee payer keypair); the publisher itself does NOT sign the
@@ -309,6 +350,14 @@ export class NavOracle {
       pool: PublicKey;
       args: UpdateNavParams;
       additionalSigners?: (Signer | Keypair)[];
+      /**
+       * Optional publisher Keypair — when provided, the SDK signs the
+       * canonical payload locally and overrides any value in
+       * `args.signature`. Use this for tests / devnet operator scripts;
+       * for KMS-managed publishers, pre-compute the signature externally
+       * and pass it via `args.signature` instead.
+       */
+      publisher?: Keypair;
     },
   ): Promise<string> {
     const provider = program.provider as AnchorProvider;
@@ -319,6 +368,20 @@ export class NavOracle {
 
     // Fetch the NavAccount to learn the current publisher.
     const state = await NavOracle.fetchNavAccount(program, navAccount);
+
+    // If a Keypair was provided, the publisher's pubkey MUST match the
+    // on-chain publisher recorded in NavAccount; otherwise the Ed25519
+    // verify ix would sign+verify with a key that differs from the
+    // payload's `publisher` field, producing a downstream mismatch.
+    if (params.publisher) {
+      if (!params.publisher.publicKey.equals(state.publisher)) {
+        throw new Error(
+          `Publisher Keypair pubkey ${params.publisher.publicKey.toBase58()} ` +
+            `does not match on-chain publisher ${state.publisher.toBase58()}. ` +
+            `Use rotatePublisher first, or provide a Keypair for the registered key.`,
+        );
+      }
+    }
 
     // Reconstruct the canonical payload from the supplied args + on-chain
     // pool/publisher; this is what the on-chain handler will reconstruct
@@ -336,17 +399,31 @@ export class NavOracle {
       loanTapeMerkleRoot: params.args.loanTapeMerkleRoot,
     });
 
+    // Compute or accept signature per the two-flow design described in
+    // the doc-comment above.
+    const signatureBytes: Uint8Array = params.publisher
+      ? nacl.sign.detached(payload, params.publisher.secretKey)
+      : params.args.signature instanceof Uint8Array
+        ? params.args.signature
+        : Buffer.from(params.args.signature);
+
+    // Mutate `args.signature` so the program ix carries the same bytes
+    // as the verify ix — the on-chain handler reads back `args.signature`
+    // and stores it onto the NavAccount for forensic replay.
+    const finalArgs: UpdateNavParams = {
+      ...params.args,
+      signature: signatureBytes,
+    };
+
     const ed25519Ix = NavOracle.buildEd25519VerifyInstruction({
       publisher: state.publisher,
       payload,
-      signature: params.args.signature instanceof Uint8Array
-        ? params.args.signature
-        : Buffer.from(params.args.signature),
+      signature: signatureBytes,
     });
 
     const updateIx = await NavOracle.buildUpdateInstruction(program, {
       pool: params.pool,
-      args: params.args,
+      args: finalArgs,
     });
 
     const tx = new Transaction().add(ed25519Ix).add(updateIx);

@@ -55,7 +55,13 @@ import {
  *
  * Layout (from `programs/derwa-wrapper/src/state.rs`):
  *   discriminator (8) | pool (32) | permissionedMint (32) | derwaMint (32)
- *   | lockedSupply (u64) | bump (u8) = 113 bytes.
+ *   | lockedSupply (u64) | bump (u8) | attestationProgram (32)
+ *   | attestationIssuer (32) | requiredAttestationType (u8) = 178 bytes.
+ *
+ * Trust-anchor fields (`attestationProgram`, `attestationIssuer`,
+ * `requiredAttestationType`) are set at `initialize` time and drive the
+ * full identity-binding validation in `unwrap` (owner / subject /
+ * issuer / type / canonical PDA).
  */
 export interface WrapperConfigState {
   /** Pool this wrapper is bound to (the SVS-11 CreditVault PDA). */
@@ -71,6 +77,12 @@ export interface WrapperConfigState {
   lockedSupply: BN;
   /** PDA bump for `WrapperConfig`. */
   bump: number;
+  /** Program owning acceptable attestation accounts (e.g. mock-sas / SAS). */
+  attestationProgram: PublicKey;
+  /** Expected `issuer` field on attestation payloads — the per-pool attester. */
+  attestationIssuer: PublicKey;
+  /** Required `attestation_type` byte (KYC tier required for unwrap). */
+  requiredAttestationType: number;
 }
 
 // ============================================================
@@ -78,17 +90,41 @@ export interface WrapperConfigState {
 // ============================================================
 
 /**
- * Params for `DeRwaWrapper.initialize`. Binds a pool to a (cPOOL, dePOOL) pair.
+ * Params for `DeRwaWrapper.initialize`. Binds a pool to a (cPOOL, dePOOL) pair
+ * AND captures the per-pool trust anchors used by `unwrap` to validate
+ * destination wallet attestations.
  *
  * Pre-conditions (NOT enforced by the program but required at the binding sites):
  *   1. cPOOL mint exists with ComplianceHook in Permissioned mode.
  *   2. dePOOL mint exists with ComplianceHook in FreelyTransferable mode.
  *   3. dePOOL mint authority is the `wrapper_signer` PDA (set by deployment script).
+ *
+ * Trust-anchor invariants (enforced by the on-chain handler):
+ *   - `attestationProgram` MUST NOT equal `PublicKey.default` (rejected
+ *     with `InvalidAttestationConfig`).
+ *   - `attestationIssuer` MUST NOT equal `PublicKey.default` (same).
+ *   - These fields are immutable after init.
  */
 export interface InitializeWrapperParams {
   pool: PublicKey;
   permissionedMint: PublicKey;
   derwaMint: PublicKey;
+  /**
+   * Program that owns acceptable attestation accounts (mock-sas in tests,
+   * real SAS / Civic Pass in prod).
+   */
+  attestationProgram: PublicKey;
+  /**
+   * Expected `issuer` field on attestation payloads. Pins the trust anchor
+   * to a specific compliance attester (e.g. a Brazilian KYB provider for
+   * a Cayman-LLC-wrapped FIDC pool).
+   */
+  attestationIssuer: PublicKey;
+  /**
+   * Required `attestation_type` byte (e.g. 0 = generic KYC,
+   * 2 = accredited investor). Defaults to 0 if omitted.
+   */
+  requiredAttestationType?: number;
 }
 
 /**
@@ -165,8 +201,13 @@ export class DeRwaWrapper {
       program.programId,
     );
 
+    type InitArgs = {
+      attestationProgram: PublicKey;
+      attestationIssuer: PublicKey;
+      requiredAttestationType: number;
+    };
     const methodsNs = program.methods as unknown as {
-      initialize: () => {
+      initialize: (args: InitArgs) => {
         accountsPartial: (a: Record<string, PublicKey>) => {
           rpc: () => Promise<string>;
         };
@@ -174,7 +215,11 @@ export class DeRwaWrapper {
     };
 
     const signature = await methodsNs
-      .initialize()
+      .initialize({
+        attestationProgram: params.attestationProgram,
+        attestationIssuer: params.attestationIssuer,
+        requiredAttestationType: params.requiredAttestationType ?? 0,
+      })
       .accountsPartial({
         pool: params.pool,
         wrapperConfig,

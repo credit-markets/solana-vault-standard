@@ -100,10 +100,16 @@ describe("SDK ComplianceHook Class", () => {
         mint: MINT_A,
         mode: ComplianceMode.freelyTransferable(),
         poolPolicy: null,
+        // Trust anchors are stored but unused for FreelyTransferable;
+        // default-zero values are the canonical "unset" form.
+        attestationProgram: PublicKey.default,
+        attestationIssuer: PublicKey.default,
+        requiredAttestationType: 0,
       };
       expect(fixture.mint.equals(MINT_A)).to.be.true;
       expect(fixture.poolPolicy).to.equal(null);
       expect(fixture.mode).to.have.property("freelyTransferable");
+      expect(fixture.attestationProgram.equals(PublicKey.default)).to.be.true;
     });
 
     it("MintConfigState accepts a Permissioned layout (poolPolicy: PublicKey)", () => {
@@ -111,10 +117,16 @@ describe("SDK ComplianceHook Class", () => {
         mint: MINT_B,
         mode: ComplianceMode.permissioned(),
         poolPolicy: POOL_POLICY,
+        // Permissioned mode requires non-default trust anchors on-chain;
+        // here we just exercise the type shape with arbitrary keys.
+        attestationProgram: AUTHORITY,
+        attestationIssuer: AUTHORITY,
+        requiredAttestationType: 2, // accredited investor
       };
       expect(fixture.mint.equals(MINT_B)).to.be.true;
       expect(fixture.poolPolicy?.equals(POOL_POLICY)).to.be.true;
       expect(fixture.mode).to.have.property("permissioned");
+      expect(fixture.requiredAttestationType).to.equal(2);
     });
 
     it("SanctionsListState round-trips a non-empty addresses vec", () => {

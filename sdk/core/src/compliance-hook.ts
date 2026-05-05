@@ -55,12 +55,24 @@ export const ComplianceMode = {
 /**
  * On-chain `MintConfig` account. Bound to a Token-2022 mint that uses the
  * compliance hook.
+ *
+ * Trust-anchor fields (`attestationProgram`, `attestationIssuer`,
+ * `requiredAttestationType`) drive `execute::check_attestation` for
+ * Permissioned-mode mints — the on-chain handler enforces full identity
+ * binding (owner / subject / issuer / type / canonical PDA) against
+ * these. For `freelyTransferable`, they are stored but unused.
  */
 export interface MintConfigState {
   mint: PublicKey;
   mode: ComplianceMode;
   /** Optional pool-policy PDA (Permissioned mode); `null` in FreelyTransferable. */
   poolPolicy: PublicKey | null;
+  /** Program owning acceptable attestation accounts (e.g. mock-sas / SAS). */
+  attestationProgram: PublicKey;
+  /** Expected `issuer` field on attestation payloads. */
+  attestationIssuer: PublicKey;
+  /** Required `attestation_type` byte (e.g. 0 = generic KYC, 2 = accredited). */
+  requiredAttestationType: number;
 }
 
 /**
@@ -89,6 +101,23 @@ export interface InitializeMintConfigParams {
   mode: ComplianceMode;
   /** Required (`Some`) for `permissioned`; must be omitted for `freelyTransferable`. */
   poolPolicy?: PublicKey | null;
+  /**
+   * Program owning acceptable attestation accounts. REQUIRED (non-default)
+   * for `permissioned`. For `freelyTransferable`, defaults to
+   * `PublicKey.default` if omitted.
+   */
+  attestationProgram?: PublicKey;
+  /**
+   * Expected `issuer` field on attestation payloads. REQUIRED (non-default)
+   * for `permissioned`. Defaults to `PublicKey.default` for
+   * `freelyTransferable`.
+   */
+  attestationIssuer?: PublicKey;
+  /**
+   * Required `attestation_type` byte (e.g. 0 = generic KYC,
+   * 2 = accredited investor). Defaults to 0.
+   */
+  requiredAttestationType?: number;
   /**
    * Mint-authority signer that authorizes the binding. Must match
    * `mint.mint_authority` on-chain or the ix returns `UnauthorizedAuthority`.
@@ -239,6 +268,9 @@ export class ComplianceHook {
       .initializeMintConfig({
         mode: params.mode,
         poolPolicy: params.poolPolicy ?? null,
+        attestationProgram: params.attestationProgram ?? PublicKey.default,
+        attestationIssuer: params.attestationIssuer ?? PublicKey.default,
+        requiredAttestationType: params.requiredAttestationType ?? 0,
       })
       .accountsStrict({
         mintConfig,

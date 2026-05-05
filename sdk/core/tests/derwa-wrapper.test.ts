@@ -70,6 +70,11 @@ describe("SDK DeRwaWrapper Module", () => {
         derwaMint: DERWA_MINT,
         lockedSupply: new BN(0),
         bump: 254,
+        // Trust anchors set at initialize time. Tests use mock-sas in
+        // practice; here we just exercise the type shape.
+        attestationProgram: POOL,
+        attestationIssuer: PERMISSIONED_MINT,
+        requiredAttestationType: 0,
       };
 
       expect(state.pool).to.be.instanceOf(PublicKey);
@@ -77,20 +82,31 @@ describe("SDK DeRwaWrapper Module", () => {
       expect(state.derwaMint).to.be.instanceOf(PublicKey);
       expect(BN.isBN(state.lockedSupply)).to.be.true;
       expect(state.bump).to.be.a("number");
+      expect(state.attestationProgram).to.be.instanceOf(PublicKey);
+      expect(state.attestationIssuer).to.be.instanceOf(PublicKey);
+      expect(state.requiredAttestationType).to.be.a("number");
     });
   });
 
   describe("InitializeWrapperParams interface", () => {
-    it("compiles with all three required fields", () => {
+    it("compiles with the required mints + trust anchors", () => {
       const params: InitializeWrapperParams = {
         pool: POOL,
         permissionedMint: PERMISSIONED_MINT,
         derwaMint: DERWA_MINT,
+        // Trust anchors are required for wrapper init. The on-chain
+        // handler rejects PublicKey.default for either of these.
+        attestationProgram: POOL, // mock-sas in real tests
+        attestationIssuer: USER, // attester in real tests
+        requiredAttestationType: 0,
       };
 
       expect(params.pool.equals(POOL)).to.be.true;
       expect(params.permissionedMint.equals(PERMISSIONED_MINT)).to.be.true;
       expect(params.derwaMint.equals(DERWA_MINT)).to.be.true;
+      expect(params.attestationProgram.equals(POOL)).to.be.true;
+      expect(params.attestationIssuer.equals(USER)).to.be.true;
+      expect(params.requiredAttestationType).to.equal(0);
     });
   });
 
