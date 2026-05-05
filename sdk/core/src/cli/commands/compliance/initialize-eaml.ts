@@ -68,14 +68,10 @@ export function registerInitEamlCommand(parent: Command): void {
         const spinner = output.spinner("Creating ExtraAccountMetaList PDA...");
         spinner.start();
 
-        const result = await ComplianceHook.initializeExtraAccountMetaList(
-          prog,
-          wallet.publicKey,
-          {
-            mint,
-            mintAuthority: wallet.publicKey,
-          },
-        );
+        const result = await ComplianceHook.initializeExtraAccountMetaList(prog, {
+          mint,
+          mintAuthority: wallet,
+        });
 
         spinner.succeed("EAML created");
         output.success(`Tx: ${result.signature}`);
@@ -84,7 +80,7 @@ export function registerInitEamlCommand(parent: Command): void {
           output.json({
             success: true,
             mint: mint.toBase58(),
-            eaml: result.eaml.toBase58(),
+            extraAccountMetaList: result.extraAccountMetaList.toBase58(),
             signature: result.signature,
           });
         }

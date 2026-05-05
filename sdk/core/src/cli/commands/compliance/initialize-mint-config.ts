@@ -34,18 +34,19 @@ export function registerInitMintConfigCommand(parent: Command): void {
 
       const modeStr = String(opts.mode).toLowerCase();
       let mode: ComplianceMode;
+      let isPermissioned: boolean;
       if (modeStr === "freely-transferable" || modeStr === "freely_transferable") {
-        mode = ComplianceMode.FreelyTransferable;
+        mode = ComplianceMode.freelyTransferable();
+        isPermissioned = false;
       } else if (modeStr === "permissioned") {
-        mode = ComplianceMode.Permissioned;
+        mode = ComplianceMode.permissioned();
+        isPermissioned = true;
       } else {
         output.error(
           `Invalid --mode '${opts.mode}'. Expected 'freely-transferable' or 'permissioned'.`,
         );
         process.exit(1);
       }
-
-      const isPermissioned = mode === ComplianceMode.Permissioned;
       if (isPermissioned && !opts.poolPolicy) {
         output.error("--pool-policy is REQUIRED when --mode is permissioned.");
         process.exit(1);
@@ -107,16 +108,12 @@ export function registerInitMintConfigCommand(parent: Command): void {
         const spinner = output.spinner("Creating MintConfig PDA...");
         spinner.start();
 
-        const result = await ComplianceHook.initializeMintConfig(
-          prog,
-          wallet.publicKey,
-          {
-            mint,
-            mode,
-            poolPolicy,
-            mintAuthority: wallet.publicKey,
-          },
-        );
+        const result = await ComplianceHook.initializeMintConfig(prog, {
+          mint,
+          mode,
+          poolPolicy,
+          mintAuthority: wallet,
+        });
 
         spinner.succeed("MintConfig created");
         output.success(`Tx: ${result.signature}`);

@@ -83,25 +83,17 @@ export function registerUpdateSanctionsListCommand(parent: Command): void {
         const hook = await ComplianceHook.load(prog);
         const sigs: string[] = [];
 
-        if (additions.length > 0) {
-          const spinner = output.spinner("Adding addresses...");
+        if (additions.length > 0 || removals.length > 0) {
+          const spinner = output.spinner("Updating sanctions list...");
           spinner.start();
-          const sig = await hook.updateSanctionsList(wallet.publicKey, {
-            addresses: additions,
-            add: true,
+          const sig = await hook.updateSanctionsList({
+            authority: wallet,
+            additions,
+            removals,
           });
-          spinner.succeed(`Added ${additions.length} address(es)`);
-          sigs.push(sig);
-        }
-
-        if (removals.length > 0) {
-          const spinner = output.spinner("Removing addresses...");
-          spinner.start();
-          const sig = await hook.updateSanctionsList(wallet.publicKey, {
-            addresses: removals,
-            add: false,
-          });
-          spinner.succeed(`Removed ${removals.length} address(es)`);
+          spinner.succeed(
+            `Sanctions list updated (+${additions.length}, -${removals.length})`,
+          );
           sigs.push(sig);
         }
 
