@@ -7,6 +7,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### compliance-hook program (new)
+Generic Token-2022 `TransferHook` backend. Per-mint configuration drives transfer-time policy (sanctions list in both modes, plus attestation gating in Permissioned mode).
+
+- `SanctionsList` PDA — singleton, authority-gated address list
+- `MintConfig` PDA (per-mint) — mode (`FreelyTransferable | Permissioned`) + optional `pool_policy`
+- `ExtraAccountMetaList` PDA (per-mint) — provisions Token-2022 hook account layout
+- Instructions: `initialize_sanctions_list`, `update_sanctions_list`, `initialize_mint_config`, `initialize_extra_account_meta_list`, `execute`
+- Events: `SanctionsListUpdated`
+- Errors: `SanctionedAddress`, `AttestationNotFound`, `IncorrectAccount`, `MissingPoolPolicyForPermissioned`, `PoolPolicySetOnFreelyTransferable`, `InvalidMintAccount`
+- See `docs/compliance-hook.md`.
+
+#### nav-oracle program (new)
+Per-pool NAV oracle for credit-grade pricing. Off-chain publisher signs a canonical 133-byte payload; on-chain handler verifies via `Ed25519Program` instruction scan and stores the latest NAV in a `NavAccount` PDA.
+
+- `NavAccount` PDA (per-pool) — stores publisher, key_rotation_authority, sequence, gross/net NAV, TER, loss-provision, timestamp, signature, loan-tape merkle root
+- Instructions: `initialize`, `update`, `rotate_publisher`
+- Canonical 133-byte signing payload (pool · navNet · navGross · terBps · lossBps · navType · timestamp · sequence · publisher · merkleRoot)
+- Events: `NavUpdated`
+- Errors: `StaleSequence`, `InvalidSignature`, `InconsistentNav`, `UnauthorizedRotation`, `UnauthorizedPublisher`, `TimestampInFuture`
+- Replay-safe via strict sequence monotonicity; tolerates ComputeBudget priority-fee instructions (scans ALL preceding ixs for the verify, not just index 0)
+- See `docs/nav-oracle.md`.
+
+#### derwa-wrapper program (new)
+1:1 wrap between a closed permissioned mint (cPOOL) and an open Token-2022 mint (dePOOL) with attestation-gated unwrap.
+
+- `WrapperConfig` PDA (per-pool) — binds (pool, permissioned mint, deRWA mint)
+- `wrapper_signer` PDA — token authority on the cPOOL escrow ATA + mint+freeze authority on dePOOL
+- Instructions: `initialize`, `wrap` (cPOOL → dePOOL), `unwrap` (dePOOL → cPOOL, attestation-gated)
+- Errors: includes `Unauthorized`, `InvalidAttestation`, supply-conservation guards
+- Mechanism: wrap deposits cPOOL into a wrapper-owned escrow + mints dePOOL; unwrap burns dePOOL + transfers cPOOL out of escrow. The wrapper has NO mint authority on cPOOL.
+- See `docs/derwa-wrapper.md`.
+
+#### SVS-11: NAV oracle extensibility
+- New `set_oracle_source` instruction (authority-gated). Toggles `CreditVault.oracle_source` between `0` (simple/mock oracle, neutral upstream default) and `1` (NavOracle adapter, opt-in for richer NAV semantics)
+- New `OracleSourceChanged` event
+- New `CreditVault` fields: `last_seen_nav_sequence`, `last_seen_nav_price`, `max_nav_staleness_secs`, `oracle_source` (32 bytes total + 7-byte alignment padding)
+- `approve_deposit` and `approve_redeem` branch on `oracle_source` and read the appropriate oracle account
+- New errors: `OracleAccountMissing`, `OracleAccountInvalid`, `OraclePoolMismatch`, `OraclePublisherMismatch`, `OracleSequenceStale`, `OracleSourceInvalid`
+
+#### SVS-11: Redemption pro-rata fulfillment
+- `RedemptionRequest` gains `original_shares`, `fulfilled_shares_cumulative`, `queued_for_settlement_at` fields for partial-fulfillment across multiple settlement dates
+- `approve_redeem` supports floor-rounded pro-rata fulfillment
+- `request_redeem` accepts `queued_for_settlement_at` argument (off-chain scheduler input; sentinel `0` accepted)
+- Auto-requeue on partial settlement (request stays in queue until `fulfilled_shares_cumulative == original_shares`)
+
+#### SVS-11: Attestation extensions
+- `Attestation` struct extended with `jurisdiction (u16)`, `investor_class (u8)`, `kyc_risk_tier (u8)`
+- `validate_attestation` retains existing `attestation_type` enforcement; new fields are observed-only on this PR (reserved for future enforcement gates)
+- Backward-compatible at the byte layout level: the 4 new bytes occupy reserved padding, so older attestations zero-init these fields
+
+#### SVS-11: ComplianceHook integration on `initialize_pool`
+- Pool initialization now binds the cPOOL Token-2022 TransferHook extension to compliance-hook in the same transaction
+- Subsequent share-mint transfers route through `compliance-hook.execute`
+
+#### SDK (`@stbr/solana-vault`)
+- New TypeScript clients matching every supporting program:
+  - `ComplianceHook` class + `compliance-hook-pda.ts` helpers
+  - `NavOracle` class + `nav-oracle-pda.ts` helpers (includes `buildSigningPayload` helper for off-chain publisher tooling)
+  - `DeRwaWrapper` class + `derwa-wrapper-pda.ts` helpers
+  - `mock-sas-pda.ts` helpers (extracted from `credit-vault-pda.ts`)
+- `CreditVault.setOracleSource()` SDK method
+- `CreditVaultState` interface gains `oracleSource`, `lastSeenNavSequence`, `lastSeenNavPrice`, `maxNavStalenessSecs`
+- `CreditVault.approveDeposit` / `approveRedeem` accept optional `navAccount` parameter (used when `oracle_source == 1`)
+- `CreditVault.requestRedeem` accepts optional `queuedForSettlementAt` parameter
+- All new modules re-exported from `sdk/core/src/index.ts`
+- See `docs/SDK.md`.
+
+#### CLI (`solana-vault`)
+- New `solana-vault compliance` group: `init-sanctions-list`, `update-sanctions-list`, `init-mint-config`, `init-eaml`
+- New `solana-vault nav` group: `init`, `publish`, `rotate-publisher`
+- New `solana-vault derwa` group: `init`, `wrap`, `unwrap`
+- New `solana-vault set-oracle-source` command in the credit group
+- Wired the SVS-11 credit command group into the CLI top-level (was authored but never registered before this PR)
+- See `docs/CLI.md`.
+
+#### Operator scripts (reference institutional deployment)
+These are reference scripts demonstrating one institutional deployment pattern (Squads V4 multisig + 3-vault Guardian model). They are NOT required SVS core behavior.
+
+- `deploy-guardian-vaults.ts` — deploys 3 Squads V4 vaults (Protocol/Ops/Emergency Guardian), reads treasury from Squads `ProgramConfig` PDA
+- `bootstrap-signers.ts` — staged Squads quorum bootstrap (Stage 0 deployer-only → 1 add signers → 1.5 prove-of-key-custody → 2 ratchet threshold + remove deployer → 3 verify quorum)
+- `migrate-authorities.ts` — rotates non-svs-11 authorities to Guardian Squads vaults; gated on `bootstrap_stage = stage_3_verified`
+- `initialize-nav-account.ts` — per-pool NavAccount initialization (sentinel-pubkey hardened)
+- `create-derwa-mint.ts` — Token-2022 dePOOL mint with TransferHook + MintConfig + ExtraAccountMetaList wiring
+- `bootstrap-demo-pool.ts` — devnet demo pool driver
+- `drain-redemption-requests.ts` — pre-flight maintenance for SVS-11 in-place upgrades
+
+#### Tests
+- `tests/compliance-hook.spec.ts` (new) — sanctions list, MintConfig, EAML, execute (FreelyTransferable + Permissioned modes)
+- `tests/nav-oracle.spec.ts` (new) — publish self-consistency, stale-sequence rejection, inconsistent-NAV rejection
+- `tests/derwa-wrapper.spec.ts` (new) — wrap + unwrap roundtrip + attestation gate
+- `tests/create-derwa-mint-script.spec.ts` (new) — regression guard against the deferred-runbook pattern
+- `tests/svs-11.ts` (extended) — NavOracle helpers (`buildNavSigningPayload`, `publishNav`), opt-in approval (success), missing-NavAccount rejection (negative), source-switch test, NavAccount initialization in pool init flow
+- SDK unit tests for all new client classes (PDA derivation, byte-layout parity for the NAV signing payload, IDL drift detection)
+
+#### Documentation
+- New per-program docs: `docs/compliance-hook.md`, `docs/nav-oracle.md`, `docs/derwa-wrapper.md`
+- Updated cross-cutting docs: `docs/SVS-11.md` (oracle extensibility section), `docs/EVENTS.md`, `docs/ERRORS.md`, `docs/TESTING.md`, `docs/ARCHITECTURE.md`, `docs/MODULES.md`
+- New "Supporting Programs" sections in ARCHITECTURE and MODULES describing how compliance-hook / nav-oracle / derwa-wrapper sit alongside SVS-1..SVS-12
+
+### Changed
+
+- **Breaking-ish (SVS-11 only)**: `Attestation` byte layout extended by 4 bytes (`jurisdiction` + `investor_class` + `kyc_risk_tier`). Older attestation accounts created before this change need to be re-issued; the on-chain reader still tolerates the older shorter layout because the new fields occupy what was previously zero-initialized reserved bytes.
+- **Breaking-ish (SVS-11 only)**: `request_redeem` signature gains a `queued_for_settlement_at` argument. Callers without an off-chain redemption scheduler can pass `0` as a sentinel (manager sets the real value on first partial fulfillment).
+- `CreditVault.approveDeposit` / `approveRedeem` SDK methods accept an optional `navAccount` parameter (defaults to `program.programId` placeholder when `oracle_source == 0`).
+- `Cargo.lock` now committed at the workspace root to lock dep resolution for Solana 1.84 cargo.
+- Yarn version pinned to `1.22.22` via `packageManager` field. Yarn workspaces remain in classic v1 lockfile format. Yarn 4 / Berry was inadvertently introduced during development and reverted before this PR; the pin prevents future drift.
+
+### Removed
+
+- **Breaking (SVS-11 only)**: `realloc_credit_vault_for_oracle_v2` instruction removed. Pre-Apr-2026 devnet pools using the v1 layout cannot be migrated in place — recreate them. This avoids carrying upstream a one-shot migration that no fresh SVS-11 deployment ever needs.
+
+### Build / Tooling
+
+- Three new on-chain programs added to the workspace: `programs/compliance-hook`, `programs/nav-oracle`, `programs/derwa-wrapper`. Registered in `Anchor.toml` under `[programs.devnet]` and `[programs.localnet]`.
+- `tweetnacl` added as a devDependency for test-only off-chain Ed25519 signing of NAV payloads.
+- `@sqds/multisig` added as a devDependency for the reference Guardian deployment scripts.
+- `.gitignore` now ignores yarn 4 PnP artifacts (`.pnp.*`).
+
 ## [2.0.0] - 2026-04-04
 
 ### Security
