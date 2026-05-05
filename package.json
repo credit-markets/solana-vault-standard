@@ -2,6 +2,7 @@
   "name": "@stbr/tokenized-vault-standard",
   "version": "2.0.0",
   "private": true,
+  "packageManager": "yarn@1.22.22",
   "description": "Solana Vault Standard (SVS) — ERC-4626 tokenized vaults for Solana. SVS-1/SVS-2 (public), SVS-3/SVS-4 (confidential)",
   "workspaces": [
     "sdk/core",
