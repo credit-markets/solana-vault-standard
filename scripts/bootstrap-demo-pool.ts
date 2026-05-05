@@ -2,13 +2,14 @@
  * Bootstrap a demo CreditVault pool on devnet.
  *
  * Upstream SVS-11 initializes pools on the simple/mock oracle path by
- * default. INA Credit Markets treats rich NavOracle as deployment policy:
+ * default. Credit Markets deployments treat rich NavOracle as deployment
+ * policy:
  *
  *   1. mock_oracle.set_price — simple default + emergency fallback.
  *   2. svs-11.initialize_pool — creates the CreditVault with oracle_source = 0.
  *   3. initialize-nav-account.ts — creates the per-pool NavAccount.
  *   4. credit-model publisher posts the first NAV.
- *   5. set_oracle_source(1) opts the INA pool into rich NavOracle before
+ *   5. set_oracle_source(1) opts the pool into rich NavOracle before
  *      the investment window is opened.
  *
  * After this script: run initialize-nav-account.ts against the same pool
@@ -368,7 +369,7 @@ async function main() {
     initialize_pool_tx: initPoolSig,
     next_steps: [
       "Run initialize-nav-account.ts to create the parallel NavAccount under nav-oracle",
-      "For INA Credit Markets pools: initialize NavAccount, publish initial NAV, then set_oracle_source(1) before opening the investment window",
+      "For Credit Markets pools: initialize NavAccount, publish initial NAV, then set_oracle_source(1) before opening the investment window",
     ],
   };
   fs.writeFileSync(outFile, JSON.stringify(artifact, null, 2));

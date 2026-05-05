@@ -64,9 +64,9 @@ pub struct CreditVault {
     // Deployments that need richer credit-market NAV semantics can opt into
     // the NavOracle adapter via `oracle_source = 1`. This is bounded
     // extensibility (simple oracle + known NavOracle add-on), not an
-    // arbitrary plugin registry. INA Credit Markets uses that richer adapter
-    // as deployment policy, not as a requirement imposed on every upstream
-    // SVS-11 user.
+    // arbitrary plugin registry. Credit Markets deployments use the richer
+    // adapter as deployment policy, not as a requirement imposed on every
+    // upstream SVS-11 user.
     /// Last `NavAccount.sequence` the vault has consumed. Updated atomically by
     /// approve_deposit + approve_redeem after a successful NavOracle read.
     /// 0 on initialize_pool means "no sequence consumed yet".
