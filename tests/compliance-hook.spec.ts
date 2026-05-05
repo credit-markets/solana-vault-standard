@@ -72,7 +72,7 @@ describe("compliance-hook: update_sanctions_list", () => {
 
 describe("compliance-hook: execute (FreelyTransferable mode)", () => {
   // Full Token-2022 + transfer-hook test scaffolding (mint with extension,
-  // ATAs, extra-account-meta-list) lands in Task 11. Until then these are
+  // ATAs, extra-account-meta-list) lands in a separate test follow-up. Until then these are
   // placeholders that document the intended coverage.
 
   it.skip("transfer between two non-sanctioned wallets succeeds", async () => {
@@ -105,16 +105,16 @@ describe("compliance-hook: execute (FreelyTransferable mode)", () => {
 });
 
 describe("compliance-hook: execute (Permissioned mode)", () => {
-  // Full Token-2022 + transfer-hook test scaffolding lands in Task 11. Until
+  // Full Token-2022 + transfer-hook test scaffolding lands in a separate test follow-up. Until
   // then these are placeholders documenting the intended Permissioned-mode
   // coverage. Each case assumes:
   //   - a Token-2022 mint with TransferHook extension pointing at
   //     compliance-hook,
   //   - a `MintConfig` PDA with `mode = Permissioned`,
   //   - an `ExtraAccountMetaList` PDA initialized with the 7 Permissioned
-  //     extras (Task 9b), and
+  //     extras (when EAML extras land), and
   //   - SVS-11 Attestation PDAs (or the absence thereof) for the relevant
-  //     wallets, with the offset map locked by Task 8.
+  //     wallets, with the offset map locked by the v2 attestation extension.
 
   it.skip("transfer succeeds when both wallets have valid attestations", async () => {
     // Setup: source + destination owners each have an SVS-11 Attestation
@@ -138,7 +138,7 @@ describe("compliance-hook: execute (Permissioned mode)", () => {
   it.skip("transfer fails when destination attestation is revoked", async () => {
     // Setup: destination Attestation written with `revoked = true` (byte 83
     // of payload after the 8-byte discriminator, per the layout locked in
-    // Task 8). Source attestation is valid.
+    // the v2 attestation extension). Source attestation is valid.
     // Expected: AttestationRevoked (6003) error.
   });
 
@@ -155,7 +155,7 @@ describe("compliance-hook: initialize_extra_account_meta_list", () => {
   // This is the seed the runtime looks up to resolve extra accounts when
   // executing a transfer through any mint bound to compliance-hook. Full
   // mint-with-extension scaffolding (init the mint, derive ATAs, etc.)
-  // lands in Task 11; until then these are placeholders documenting intent.
+  // lands in a separate test follow-up; until then these are placeholders documenting intent.
   const EXTRA_ACCOUNT_METAS_SEED = "extra-account-metas";
 
   it.skip("creates the ExtraAccountMetaList PDA at the canonical seed", async () => {

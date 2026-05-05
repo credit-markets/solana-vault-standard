@@ -39,14 +39,14 @@ import {
 const ATTESTATION_PROGRAM_ID = new PublicKey(
   "GTTMWDHTZibyEpqNRr33RnBhgms262U6qHaGrjoHqEXg",
 );
-// Plan C Task 3 / Step 3b — compliance-hook program ID (Plan A Task 4).
+// compliance-hook program ID (used by initialize_pool to bind the TransferHook).
 // initialize_pool CPIs into this program for the EAML init + reads its PDAs.
 const COMPLIANCE_HOOK_PROGRAM_ID = new PublicKey(
   "6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P",
 );
 const PRICE_SCALE = new BN(1_000_000_000);
 const FAR_FUTURE_EXPIRY = new BN(4_102_444_800); // ~year 2100
-// Plan C Task 3 / P0.6 — full-fulfillment ratio (1e18). Tests reuse this
+// full-fulfillment ratio (1e18). Tests reuse this
 // across all approve_redeem calls to preserve pre-Plan-C semantics.
 const FULL_FULFILLMENT_RATIO = new BN("1000000000000000000");
 
@@ -370,11 +370,11 @@ describe("svs-11 (Credit Markets Vault)", () => {
 
   describe("Initialization", () => {
     it("initializes vault correctly", async () => {
-      // Plan C Task 3 / Step 3b — initialize_pool binds the cPOOL mint's
+      // initialize_pool binds the cPOOL mint's
       // Token-2022 TransferHook extension to COMPLIANCE_HOOK_PROGRAM_ID.
       // The compliance-hook PDAs (MintConfig + EAML) and infrastructure
       // attestations are initialized by separate follow-up txs in the
-      // deployment runbook (Plan C Task 14 Step 8) — they are NOT part of
+      // deployment runbook — they are NOT part of
       // initialize_pool's accounts struct.
       void COMPLIANCE_HOOK_PROGRAM_ID; // referenced via env at deploy time
 
@@ -609,7 +609,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           investmentRequest,
           investor: investor.publicKey,
           navOracle: mockOracleData,
-          // Plan B Task 6: nav_account slot — vault default oracle_source=0
+          // nav_account slot — vault default oracle_source=0
           // (mock) so this is unread; use program.programId as filler.
           navAccount: program.programId,
           attestation,

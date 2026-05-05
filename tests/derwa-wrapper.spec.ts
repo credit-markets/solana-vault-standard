@@ -1,11 +1,11 @@
 /**
- * Plan C Task 9 — derwa-wrapper integration tests.
+ * derwa-wrapper integration tests.
  *
  * Scope: this is a UNIT-level integration test of the wrapper logic only.
  * It does NOT exercise the Token-2022 TransferHook → ComplianceHook path
  * because:
- *   1. Plan C Task 5b's spec defers MintConfig + ExtraAccountMetaList init
- *      to the Plan C Task 14 deployment runbook (compliance-hook lacks a
+ *   1. Original spec deferred MintConfig + ExtraAccountMetaList init
+ *      to the deployment runbook (compliance-hook lacks a
  *      public initialize_mint_config ix). Without those PDAs the hook
  *      cannot resolve extra accounts on the in-CPI transfer_checked path.
  *   2. Even with those PDAs, the wrapper's `wrap` / `unwrap` CPIs would
@@ -17,7 +17,7 @@
  *   ✅ unwrap with valid attestation burns dePOOL + releases cPOOL + decrements locked_supply
  *   ✅ unwrap without attestation rejects with AttestationRequired (8001)
  *
- * What we DO NOT test (deferred to Plan C Task 14 e2e runbook):
+ * What we DO NOT test (deferred to the e2e deployment runbook):
  *   ❌ Hook-enforced sanctions checks during wrap (cPOOL transfer)
  *   ❌ Hook-enforced attestation checks during unwrap (cPOOL transfer)
  *   ❌ Mint-substitution attacks via wrap to a different (cPOOL, dePOOL) pair
@@ -99,7 +99,7 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
 
     // Create cPOOL (permissioned mint). For these unit tests we DO NOT bind
     // the TransferHook extension — the hook integration is deferred to the
-    // Task 14 deployment runbook (see file header). Investor is the initial
+    // deployment runbook (see file header). Investor is the initial
     // mint authority just so we can fund the investor's cPOOL ATA.
     permissionedMint = await createMint(
       connection,
