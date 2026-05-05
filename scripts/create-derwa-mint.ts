@@ -259,10 +259,17 @@ async function main() {
   );
 
   console.log(`\nInitializing compliance-hook MintConfig...`);
+  // dePOOL is FreelyTransferable — trust anchors are stored but unused
+  // by the hook (no Permissioned-mode attestation enforcement on dePOOL
+  // transfers). Pass default-zero anchors for clarity. The on-chain
+  // handler accepts default values when mode != Permissioned.
   const initMintConfigSig = await complianceHook.methods
     .initializeMintConfig({
       mode: { freelyTransferable: {} },
       poolPolicy: null,
+      attestationProgram: PublicKey.default,
+      attestationIssuer: PublicKey.default,
+      requiredAttestationType: 0,
     })
     .accountsPartial({
       mintConfig: mintConfigPda,

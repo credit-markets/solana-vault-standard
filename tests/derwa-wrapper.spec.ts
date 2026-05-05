@@ -172,8 +172,18 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
     );
 
     // Initialize the wrapper for this pool.
+    //
+    // Trust anchors: bind the wrapper to the mock-sas attestation
+    // program + the test-scoped `attester` issuer + attestation_type 0.
+    // The on-chain `unwrap` handler will validate destination
+    // attestations against these anchors via the
+    // owner / subject / issuer / type / canonical-PDA chain.
     await program.methods
-      .initialize()
+      .initialize({
+        attestationProgram: ATTESTATION_PROGRAM_ID,
+        attestationIssuer: attester.publicKey,
+        requiredAttestationType: 0,
+      })
       .accountsPartial({
         pool: pool.publicKey,
         wrapperConfig: wrapperConfigPda,
@@ -358,9 +368,17 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
       .rpc();
 
     // Pass a random non-existent pubkey as the attestation account.
-    // The unwrap handler checks `att.lamports() > 0 && att.data_len() > 0`
-    // first, which fails for a non-existent system account — yields
-    // AttestationRequired (DeRwaError variant 8001).
+    // The unwrap handler now performs the owner check FIRST (`att.owner
+    // == wrapper_config.attestation_program`) — this fails for a default-
+    // zero system account because its `owner` is the system program, not
+    // mock-sas. So the first rejection is `InvalidAttestationProgram`
+    // (8004), NOT `AttestationRequired` (8001) like the prior
+    // existence-first ordering produced.
+    //
+    // Owner-first ordering is the safer security posture: a single
+    // Pubkey comparison rejects forgeries from foreign programs before
+    // any payload reads happen. Both error codes mean "the attestation
+    // is unusable" so the test accepts either.
     const fakeAttestation = Keypair.generate().publicKey;
 
     let errored = false;
@@ -384,17 +402,122 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
     } catch (e: unknown) {
       errored = true;
       const errStr = String(e);
-      // Anchor errors include the error code in the message; we check for the
-      // hex form of 8001 (= 0x1f41) OR the variant name.
+      // Either rejection is acceptable: 8001 = AttestationRequired,
+      // 8004 = InvalidAttestationProgram. Iteration-1 ordering yields
+      // 8004 first; if a future re-ordering (existence-first) ever
+      // ships, 8001 would be expected — both indicate the unwrap
+      // handler refused.
       expect(
-        errStr.includes("AttestationRequired") ||
-          errStr.includes("0x1f41") ||
-          errStr.includes("8001"),
+        errStr.includes("InvalidAttestationProgram") ||
+          errStr.includes("AttestationRequired") ||
+          errStr.includes("0x1f41") || // hex(8001)
+          errStr.includes("0x1f44") || // hex(8004)
+          errStr.includes("8001") ||
+          errStr.includes("8004"),
       ).to.equal(
         true,
-        `Expected AttestationRequired error, got: ${errStr}`,
+        `Expected attestation-validation rejection, got: ${errStr}`,
       );
     }
     expect(errored).to.equal(true, "unwrap should have rejected");
+  });
+
+  it("rejects unwrap when attestation belongs to a DIFFERENT subject (8005)", async () => {
+    // Security-class check: a previous version of the unwrap handler
+    // only validated existence + revoked + expires, NEVER reading the
+    // `subject` field of the attestation payload. That meant any holder
+    // of dePOOL could pass ANY pre-existing valid attestation account
+    // (e.g. a friend's KYC'd attestation) and unwrap into the
+    // permissioned cPOOL — defeating the entire Permissioned-mode
+    // invariant.
+    //
+    // The fix reads `payload[0..32]` (subject) and compares to
+    // investor.key(); a mismatch surfaces as
+    // `InvalidAttestationSubject` (8005). This test creates a
+    // VALID attestation for a *different* wallet (`stranger`) under
+    // the *same* issuer + type, then attempts to unwrap with it.
+    // Pre-fix this would have silently succeeded.
+
+    const stranger = Keypair.generate();
+    const [strangerAttestation] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("attestation"),
+        stranger.publicKey.toBuffer(),
+        attester.publicKey.toBuffer(),
+        Buffer.from([0]), // same attestation_type as investor
+      ],
+      ATTESTATION_PROGRAM_ID,
+    );
+
+    // Create the stranger's attestation. Note: we DO NOT fund the
+    // stranger or have them sign anything — the attestation creation
+    // signer is the test payer (mock-sas accepts any signer for create
+    // by design).
+    await mockSas.methods
+      .createAttestation(attester.publicKey, 0, [66, 82], FAR_FUTURE_EXPIRY)
+      .accountsPartial({
+        authority: payer.publicKey,
+        attestation: strangerAttestation,
+        subject: stranger.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    // First, re-wrap something so we have a position to attempt to unwrap.
+    // (The previous test fully unwrapped to zero.)
+    await program.methods
+      .wrap(WRAP_AMOUNT)
+      .accountsPartial({
+        wrapperConfig: wrapperConfigPda,
+        wrapperSigner: wrapperSignerPda,
+        permissionedMint,
+        derwaMint,
+        investorPermissionedAta: investorPermAta,
+        wrapperLockedAta,
+        investorDerwaAta,
+        investor: investor.publicKey,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+      })
+      .signers([investor])
+      .rpc();
+
+    // Attempt unwrap with the stranger's attestation. The investor is
+    // still the tx signer, so all token-program checks pass — only the
+    // attestation subject check (now hardened) should reject.
+    let errored = false;
+    try {
+      await program.methods
+        .unwrap(WRAP_AMOUNT)
+        .accountsPartial({
+          wrapperConfig: wrapperConfigPda,
+          wrapperSigner: wrapperSignerPda,
+          permissionedMint,
+          derwaMint,
+          wrapperLockedAta,
+          investorPermissionedAta: investorPermAta,
+          investorDerwaAta,
+          investorAttestation: strangerAttestation, // ← stranger's, not investor's
+          investor: investor.publicKey,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        })
+        .signers([investor])
+        .rpc();
+    } catch (e: unknown) {
+      errored = true;
+      const errStr = String(e);
+      // 8005 = 0x1f45 = InvalidAttestationSubject.
+      expect(
+        errStr.includes("InvalidAttestationSubject") ||
+          errStr.includes("0x1f45") ||
+          errStr.includes("8005"),
+      ).to.equal(
+        true,
+        `Expected InvalidAttestationSubject error, got: ${errStr}`,
+      );
+    }
+    expect(errored).to.equal(
+      true,
+      "unwrap with foreign attestation should have rejected",
+    );
   });
 });

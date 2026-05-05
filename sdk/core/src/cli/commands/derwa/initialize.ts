@@ -23,6 +23,19 @@ export function registerInitDerwaCommand(parent: Command): void {
       "--derwa-mint <pubkey>",
       "Open Token-2022 mint (dePOOL) with TransferHook bound to compliance-hook",
     )
+    .requiredOption(
+      "--attestation-program <pubkey>",
+      "Program owning attestation accounts (mock-sas / SAS / Civic Pass)",
+    )
+    .requiredOption(
+      "--attestation-issuer <pubkey>",
+      "Expected attestation issuer for this pool's destination wallets",
+    )
+    .option(
+      "--required-attestation-type <u8>",
+      "Required attestation_type byte (e.g. 0 = generic KYC, 2 = accredited)",
+      "0",
+    )
     .action(async (poolArg, opts) => {
       const globalOpts = getGlobalOptions(parent.parent!);
       const ctx = await createContext(globalOpts, opts, true, true);
@@ -51,12 +64,21 @@ export function registerInitDerwaCommand(parent: Command): void {
         const pool = new PublicKey(poolArg);
         const permissionedMint = new PublicKey(opts.permissionedMint);
         const derwaMint = new PublicKey(opts.derwaMint);
+        const attestationProgram = new PublicKey(opts.attestationProgram);
+        const attestationIssuer = new PublicKey(opts.attestationIssuer);
+        const requiredAttestationType = parseInt(
+          opts.requiredAttestationType ?? "0",
+          10,
+        );
 
         output.info("═══ deRWA Wrapper: Initialize ═══");
-        output.info(`  Pool:               ${pool.toBase58()}`);
-        output.info(`  Permissioned mint:  ${permissionedMint.toBase58()} (cPOOL)`);
-        output.info(`  deRWA mint:         ${derwaMint.toBase58()} (dePOOL)`);
-        output.info(`  Payer:              ${wallet.publicKey.toBase58()}`);
+        output.info(`  Pool:                 ${pool.toBase58()}`);
+        output.info(`  Permissioned mint:    ${permissionedMint.toBase58()} (cPOOL)`);
+        output.info(`  deRWA mint:           ${derwaMint.toBase58()} (dePOOL)`);
+        output.info(`  Attestation program:  ${attestationProgram.toBase58()}`);
+        output.info(`  Attestation issuer:   ${attestationIssuer.toBase58()}`);
+        output.info(`  Required type:        ${requiredAttestationType}`);
+        output.info(`  Payer:                ${wallet.publicKey.toBase58()}`);
 
         if (globalOpts.dryRun) {
           output.success("Dry run complete. No transaction sent.");
@@ -77,7 +99,14 @@ export function registerInitDerwaCommand(parent: Command): void {
         const result = await DeRwaWrapper.initialize(
           prog,
           wallet.publicKey,
-          { pool, permissionedMint, derwaMint },
+          {
+            pool,
+            permissionedMint,
+            derwaMint,
+            attestationProgram,
+            attestationIssuer,
+            requiredAttestationType,
+          },
         );
 
         spinner.succeed("WrapperConfig created");
@@ -90,6 +119,9 @@ export function registerInitDerwaCommand(parent: Command): void {
             wrapperConfig: result.wrapperConfig.toBase58(),
             permissionedMint: permissionedMint.toBase58(),
             derwaMint: derwaMint.toBase58(),
+            attestationProgram: attestationProgram.toBase58(),
+            attestationIssuer: attestationIssuer.toBase58(),
+            requiredAttestationType,
             signature: result.signature,
           });
         }

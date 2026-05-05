@@ -27,6 +27,19 @@ export function registerInitMintConfigCommand(parent: Command): void {
       "--pool-policy <pubkey>",
       "Pool policy PDA (REQUIRED if --mode permissioned)",
     )
+    .option(
+      "--attestation-program <pubkey>",
+      "Program owning acceptable attestation accounts (REQUIRED for permissioned)",
+    )
+    .option(
+      "--attestation-issuer <pubkey>",
+      "Expected attestation issuer (REQUIRED for permissioned)",
+    )
+    .option(
+      "--required-attestation-type <u8>",
+      "Required attestation_type byte (e.g. 0 = generic KYC, 2 = accredited)",
+      "0",
+    )
     .action(async (mintArg, opts) => {
       const globalOpts = getGlobalOptions(parent.parent!);
       const ctx = await createContext(globalOpts, opts, true, true);
@@ -57,6 +70,15 @@ export function registerInitMintConfigCommand(parent: Command): void {
         );
         process.exit(1);
       }
+      if (
+        isPermissioned &&
+        (!opts.attestationProgram || !opts.attestationIssuer)
+      ) {
+        output.error(
+          "--attestation-program AND --attestation-issuer are REQUIRED when --mode is permissioned.",
+        );
+        process.exit(1);
+      }
 
       const idlPath = path.resolve(
         __dirname,
@@ -83,14 +105,27 @@ export function registerInitMintConfigCommand(parent: Command): void {
         const poolPolicy = opts.poolPolicy
           ? new PublicKey(opts.poolPolicy)
           : null;
+        const attestationProgram = opts.attestationProgram
+          ? new PublicKey(opts.attestationProgram)
+          : PublicKey.default;
+        const attestationIssuer = opts.attestationIssuer
+          ? new PublicKey(opts.attestationIssuer)
+          : PublicKey.default;
+        const requiredAttestationType = parseInt(
+          opts.requiredAttestationType ?? "0",
+          10,
+        );
         const [mintConfig] = getMintConfigAddress(mint, programId);
 
         output.info("═══ Compliance: Initialize Mint Config ═══");
-        output.info(`  Mint:          ${mint.toBase58()}`);
-        output.info(`  MintConfig:    ${mintConfig.toBase58()}`);
-        output.info(`  Mode:          ${modeStr}`);
-        output.info(`  Pool policy:   ${poolPolicy ? poolPolicy.toBase58() : "(none)"}`);
-        output.info(`  MintAuthority: ${wallet.publicKey.toBase58()} (signer)`);
+        output.info(`  Mint:                ${mint.toBase58()}`);
+        output.info(`  MintConfig:          ${mintConfig.toBase58()}`);
+        output.info(`  Mode:                ${modeStr}`);
+        output.info(`  Pool policy:         ${poolPolicy ? poolPolicy.toBase58() : "(none)"}`);
+        output.info(`  Attestation program: ${attestationProgram.toBase58()}`);
+        output.info(`  Attestation issuer:  ${attestationIssuer.toBase58()}`);
+        output.info(`  Required type:       ${requiredAttestationType}`);
+        output.info(`  MintAuthority:       ${wallet.publicKey.toBase58()} (signer)`);
 
         if (globalOpts.dryRun) {
           output.success("Dry run complete. No transaction sent.");
@@ -112,6 +147,9 @@ export function registerInitMintConfigCommand(parent: Command): void {
           mint,
           mode,
           poolPolicy,
+          attestationProgram,
+          attestationIssuer,
+          requiredAttestationType,
           mintAuthority: wallet,
         });
 
@@ -125,6 +163,9 @@ export function registerInitMintConfigCommand(parent: Command): void {
             mintConfig: result.mintConfig.toBase58(),
             mode: modeStr,
             poolPolicy: poolPolicy ? poolPolicy.toBase58() : null,
+            attestationProgram: attestationProgram.toBase58(),
+            attestationIssuer: attestationIssuer.toBase58(),
+            requiredAttestationType,
             signature: result.signature,
           });
         }

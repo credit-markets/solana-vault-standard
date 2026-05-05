@@ -78,6 +78,14 @@ export function registerPublishNavCommand(parent: Command): void {
 
         const merkleRoot = parseHex32(opts.merkleRoot);
         const publisher = loadKeypair(opts.publisherSecret);
+        // The signature is computed inside NavOracle.update — we pass
+        // `publisher` (the Keypair) and the SDK signs the canonical
+        // 133-byte payload internally via tweetnacl. The placeholder
+        // zero signature here is a type-required field that the SDK
+        // overwrites before composing the Ed25519 verify ix; we only
+        // include it because UpdateNavParams demands it for the
+        // KMS-managed flow (where callers compute the signature
+        // externally). For local-keypair flow, the SDK does the work.
         const args = {
           navNet: new BN(opts.navNet),
           navGross: new BN(opts.navGross),
@@ -87,8 +95,6 @@ export function registerPublishNavCommand(parent: Command): void {
           timestamp: new BN(opts.timestamp),
           sequence: new BN(opts.sequence),
           loanTapeMerkleRoot: Array.from(merkleRoot) as number[],
-          // Signature is computed inside NavOracle.update from the publisher Keypair.
-          // Pass a 64-byte zero placeholder; SDK overrides it.
           signature: new Array(64).fill(0) as number[],
         };
 
@@ -120,7 +126,11 @@ export function registerPublishNavCommand(parent: Command): void {
         const sig = await NavOracle.update(prog, {
           pool,
           args,
-          additionalSigners: [publisher],
+          // Pass the publisher Keypair so the SDK signs the canonical
+          // 133-byte NAV payload locally (`nacl.sign.detached`). The
+          // publisher itself is NOT a transaction signer — Ed25519 verify
+          // is a precompile and the signature is verified there.
+          publisher,
         });
 
         spinner.succeed("NAV update landed");
