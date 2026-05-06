@@ -122,29 +122,31 @@ attestations, source-missing symmetry, and re-init behavior). Calling them out
 as skipped (rather than counting them as passing) is the upstream-review-correct
 posture.
 
-**SVS-11 redemption-flow tests (7 pre-existing failures):** the redemption
-tests in `svs-11.ts` (`investor requests redemption`, `manager approves
-redemption`, `investor claims redemption`, `manager repays assets`,
-`rejects approve_redeem with insufficient liquidity`, `rejects
-approve_redeem for frozen investor`, plus the cancel-redemption setup
-hook) fail in the test environment because the cPOOL MintConfig + EAML
-PDAs are not initialized in the test setup. svs-11's `initialize_pool`
-binds the TransferHook extension on cPOOL but cannot CPI into
-compliance-hook's init handlers (the vault PDA is the cPOOL mint
-authority, and Anchor's `init` constraint via CPI from svs-11 hits
-`signer privilege escalated` because cross-program PDAs cannot be
-co-signed). The on-chain `request_redeem.rs` extends its
-`transfer_checked` CPI with hook accounts via
-`add_extra_accounts_for_execute_cpi` (production-correct path), but the
-test environment cannot exercise this without separate test
-infrastructure: either a new svs-11 instruction that decouples shares
-mint creation from `initialize_pool` (so a temp operator authority can
-init compliance-hook PDAs before transferring authority to vault), or
-a deployment-runbook-equivalent fixture in the test suite. This is
-tracked as a follow-up; the test failure mode is environmental rather
-than a code-correctness issue. The compliance-hook + derwa-wrapper
-tests prove the same `add_extra_accounts_for_execute_cpi` pattern works
-end-to-end.
+**SVS-11 redemption-flow through active Permissioned hook (end-to-end):**
+the full redemption flow is exercised against a live compliance-hook on
+cPOOL via the `bootstrap_shares_compliance` svs-11 instruction. The
+test setup runs `initialize_pool` (binds TransferHook on cPOOL +
+records vault PDA as mint authority), then
+`bootstrap_shares_compliance` (CPIs compliance-hook to init MintConfig
++ EAML signed by the vault PDA), then issues a vault-PDA system
+attestation via mock-sas (parallel to the deRWA wrapper-PDA system
+attestation). All five redemption-flow tests + the cancel-redemption
+test pass end-to-end: `investor requests redemption`, `manager
+approves redemption`, `investor claims redemption`, `manager repays
+assets`, `investor cancels pending redemption`, `rejects
+approve_redeem with insufficient liquidity`, `rejects approve_redeem
+for frozen investor`. Each cPOOL transfer goes through the active
+Permissioned hook with full identity-binding validation (owner /
+subject / issuer / type / canonical PDA).
+
+The earlier comment in `initialize_pool.rs` claiming the CPI bootstrap
+fails with "signer privilege escalated" was empirically wrong —
+anchor-syn 0.31's `Constraints::is_signer()` only marks explicit
+`signer` constraints, and init'd PDAs sign internally via
+`CpiContext::with_signer(&[seeds_with_nonce])` inside the owning
+program. The corrected comment in `initialize_pool.rs` documents the
+actual architecture; `bootstrap_shares_compliance` is the canonical
+bootstrap step.
 
 **Note:** SVS-3/SVS-4 confidential transfer tests require the proof backend running (`cd proofs-backend && cargo run`). Without it, CT-dependent tests are automatically skipped.
 

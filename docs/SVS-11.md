@@ -139,6 +139,13 @@ pub enum AccessMode {
 
 ## Instructions
 
+### Pool Setup (one-shot per pool)
+
+| Instruction | Signer | Description |
+|-------------|--------|-------------|
+| `initialize_pool` | `authority` (operator) | Create the vault PDA + shares mint (cPOOL) with TransferHook ext bound to compliance-hook + redemption escrow |
+| `bootstrap_shares_compliance` | `authority` (operator) | Initialize compliance-hook's per-mint `MintConfig` + `ExtraAccountMetaList` PDAs for the cPOOL via CPI signed by vault PDA. Pass `mode` (`FreelyTransferable` or `Permissioned`) and the trust anchors (`attestation_program`, `attestation_issuer`, `required_attestation_type`, `pool_policy`). For `Permissioned` mode, the operator must ALSO issue a system attestation for the vault PDA via the configured attestation program (subject = `vault.key()`) so the hook's destination-side check on cPOOL transfers — destination owner = vault PDA via `redemption_escrow.owner` — passes. |
+
 ### Deposit Flow (Request-Approve-Claim)
 
 | Instruction | Signer | Description |

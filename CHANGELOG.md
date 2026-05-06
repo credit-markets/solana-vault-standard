@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Token-2022 TransferHook integration — end-to-end functional
 
-The compliance-hook ↔ Token-2022 TransferHook path is exercised end-to-end by
-the integration suite. The compliance-hook + derwa-wrapper tests prove an
-investor → wrapper-PDA → investor cPOOL roundtrip succeeds against an
-ACTIVE Permissioned-mode hook with full attestation enforcement, and a
-canonical FreelyTransferable transfer succeeds against a sanctions-only
-hook. The architecture changes that landed to make this work:
+The compliance-hook ↔ Token-2022 TransferHook path is exercised end-to-end
+by the integration suite. The compliance-hook + derwa-wrapper + svs-11
+tests prove the full bootstrap chain: investor → wrapper-PDA → investor
+cPOOL roundtrip succeeds against an ACTIVE Permissioned-mode hook with
+full attestation enforcement; a canonical FreelyTransferable transfer
+succeeds against a sanctions-only hook; and svs-11's full redemption
+flow (request/approve/claim/cancel/repay + rejection paths) succeeds
+against the same active hook. The architecture changes that landed to
+make this work:
 
 1. **Anchor fallback discriminator dispatch** in `compliance-hook/src/lib.rs`.
    The SPL Transfer Hook Interface uses `sighash("spl-transfer-hook-interface",
@@ -61,16 +64,49 @@ hook. The architecture changes that landed to make this work:
    PDA in the same attestation program. The deRWA wrapper's deploy
    runbook adds this step before opening wrapping.
 
-The 4 active TransferHook execution tests in `compliance-hook.spec.ts`
-plus the 4 active wrap/unwrap tests in `derwa-wrapper.spec.ts` prove
-the full architecture end-to-end. 9 deeper negative-path cases
-(sanctioned/frozen execute failures, revoked/expired attestations,
-re-init behavior) remain visible-but-pending under `it.skip` for
-upstream-review-correct posture. svs-11's `request_redeem` carries the
-production-correct CPI extension; its 7 redemption-flow tests fail in
-the test environment due to a separate test-infra gap (vault PDA is
-the cPOOL mint authority and cannot top-level-sign for compliance-hook
-init). See `docs/TESTING.md` for the full breakdown.
+The 4 active TransferHook execution tests in `compliance-hook.spec.ts`,
+4 active wrap/unwrap tests in `derwa-wrapper.spec.ts`, and 7 active
+svs-11 redemption-flow tests in `svs-11.ts` prove the full architecture
+end-to-end. 9 deeper negative-path cases (sanctioned/frozen execute
+failures, revoked/expired attestations, re-init behavior) remain
+visible-but-pending under `it.skip` for upstream-review-correct posture.
+
+#### svs-11 cPOOL bootstrap (new instruction)
+
+A new `bootstrap_shares_compliance` instruction lands as the canonical
+bootstrap path for the per-pool compliance-hook PDAs (MintConfig +
+EAML). The handler CPIs into compliance-hook's typed init handlers
+with `vault_seeds`, so the vault PDA — which is the cPOOL mint
+authority — satisfies compliance-hook's `Signer == mint_authority`
+constraint via Anchor's `invoke_signed` flow.
+
+The earlier comment in `initialize_pool.rs:222-233` claiming this CPI
+fails with "signer privilege escalated" was empirically wrong:
+anchor-syn 0.31's `Constraints::is_signer()` only flags `is_signer = true`
+for explicit `signer` constraints, NOT for `init` constraints (init'd
+PDAs sign internally via `CpiContext::with_signer(&[seeds_with_nonce])`
+inside the owning program). The corrected comment documents the actual
+architecture and references this bootstrap instruction.
+
+Operator workflow per pool:
+
+  1. `initialize_pool(...)` — binds TransferHook on cPOOL, creates
+     vault PDA, sets vault as cPOOL mint authority.
+  2. `bootstrap_shares_compliance({ mode, pool_policy, attestation_program,
+     attestation_issuer, required_attestation_type })` — CPIs
+     compliance-hook to init MintConfig + EAML for the pool's cPOOL
+     mint. Authority-gated by `vault.authority`.
+  3. For Permissioned mode: issue an infrastructure attestation for
+     the vault PDA via the configured attestation program (mock-sas /
+     SAS). Subject = `vault.key()`. This is required because
+     `redemption_escrow.owner == vault`, so the Permissioned hook
+     validates vault's attestation on the destination side of
+     `request_redeem`'s cPOOL transfer.
+  4. Investors onboard with per-wallet attestations. `request_redeem`
+     and `cancel_redeem` extend their inner `transfer_checked` CPIs
+     with `add_extra_accounts_for_execute_cpi`, so the hook is
+     reachable through the wrapper program. Off-chain SDK callers pass
+     the resolved EAML extras as `remainingAccounts`.
 
 ### Security — attestation and hook hardening
 
