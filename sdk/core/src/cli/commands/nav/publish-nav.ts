@@ -80,8 +80,8 @@ export function registerPublishNavCommand(parent: Command): void {
         const publisher = loadKeypair(opts.publisherSecret);
         // The signature is computed inside NavOracle.update — we pass
         // `publisher` (the Keypair) and the SDK signs the canonical
-        // 133-byte payload internally via tweetnacl. The placeholder
-        // zero signature here is a type-required field that the SDK
+        // 133-byte payload internally via tweetnacl. The zero-filled
+        // signature here is a type-required field that the SDK
         // overwrites before composing the Ed25519 verify ix; we only
         // include it because UpdateNavParams demands it for the
         // KMS-managed flow (where callers compute the signature

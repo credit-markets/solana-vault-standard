@@ -2,13 +2,26 @@
 
 import { Command } from "commander";
 import { BN, Program } from "@coral-xyz/anchor";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, type AccountMeta } from "@solana/web3.js";
 import * as fs from "fs";
 import * as path from "path";
 import { createContext } from "../../middleware";
 import { getGlobalOptions } from "../../index";
 import { DeRwaWrapper } from "../../../derwa-wrapper";
 import { loadIdl } from "../../utils";
+
+function parseReadonlyAccounts(input: string | undefined): AccountMeta[] {
+  if (!input) return [];
+  return input
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map((pubkey) => ({
+      pubkey: new PublicKey(pubkey),
+      isSigner: false,
+      isWritable: false,
+    }));
+}
 
 export function registerUnwrapCommand(parent: Command): void {
   parent
@@ -20,6 +33,10 @@ export function registerUnwrapCommand(parent: Command): void {
     .requiredOption(
       "--attestation <pubkey>",
       "Attestation PDA proving the destination wallet is qualified to hold cPOOL",
+    )
+    .option(
+      "--remaining-accounts <pubkeys>",
+      "Comma-separated hook extra accounts for the cPOOL transfer CPI (readonly, non-signer)",
     )
     .action(async (opts) => {
       const globalOpts = getGlobalOptions(parent.parent!);
@@ -48,11 +65,13 @@ export function registerUnwrapCommand(parent: Command): void {
         const prog = new Program(idl as any, provider);
         const amount = new BN(opts.amount);
         const attestation = new PublicKey(opts.attestation);
+        const remainingAccounts = parseReadonlyAccounts(opts.remainingAccounts);
 
         output.info("═══ deRWA Wrapper: Unwrap ═══");
         output.info(`  User:         ${wallet.publicKey.toBase58()}`);
         output.info(`  Amount:       ${amount.toString()} dePOOL → cPOOL`);
         output.info(`  Attestation:  ${attestation.toBase58()}`);
+        output.info(`  Hook extras:  ${remainingAccounts.length}`);
 
         if (globalOpts.dryRun) {
           output.success("Dry run complete. No transaction sent.");
@@ -74,6 +93,7 @@ export function registerUnwrapCommand(parent: Command): void {
           user: wallet.publicKey,
           amount,
           attestation,
+          remainingAccounts,
         });
 
         spinner.succeed(`Unwrapped ${amount.toString()} dePOOL → cPOOL`);

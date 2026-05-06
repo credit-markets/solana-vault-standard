@@ -18,9 +18,13 @@ import {
   type InitializeExtraAccountMetaListParams,
   type UpdateSanctionsListParams,
   type InitializeSanctionsListParams,
+  type FreezeAccountParams,
+  type UnfreezeAccountParams,
+  type ComplianceFrozenAccountState,
   COMPLIANCE_HOOK_PROGRAM_ID,
 } from "../src/compliance-hook";
 import {
+  getComplianceFrozenAccountAddress,
   getExtraAccountMetaListAddress,
   getMintConfigAddress,
   getSanctionsListAddress,
@@ -83,6 +87,7 @@ describe("SDK ComplianceHook Class", () => {
       );
       expect(typeof ComplianceHook.fetchSanctionsList).to.equal("function");
       expect(typeof ComplianceHook.fetchMintConfig).to.equal("function");
+      expect(typeof ComplianceHook.fetchFrozenAccount).to.equal("function");
     });
 
     it("ComplianceHook constructor is not callable from outside (protected)", () => {
@@ -153,6 +158,11 @@ describe("SDK ComplianceHook Class", () => {
       expect(fixture.addresses).to.have.length(0);
       expect(fixture.version.isZero()).to.be.true;
     });
+
+    it("ComplianceFrozenAccountState accepts the marker bump", () => {
+      const fixture: ComplianceFrozenAccountState = { bump: 254 };
+      expect(fixture.bump).to.equal(254);
+    });
   });
 
   describe("Param interface conformance", () => {
@@ -218,6 +228,22 @@ describe("SDK ComplianceHook Class", () => {
       expect(withAdds.additions).to.have.length(2);
       expect(withAdds.removals).to.have.length(1);
     });
+
+    it("FreezeAccountParams and UnfreezeAccountParams accept owner + authority", () => {
+      const stub = { publicKey: AUTHORITY } as { publicKey: PublicKey };
+      const fakeKp = stub as unknown as FreezeAccountParams["authority"];
+      const freeze: FreezeAccountParams = {
+        authority: fakeKp,
+        owner: MINT_A,
+      };
+      const unfreeze: UnfreezeAccountParams = {
+        authority: fakeKp,
+        owner: MINT_A,
+        rentRecipient: MINT_B,
+      };
+      expect(freeze.owner.equals(MINT_A)).to.be.true;
+      expect(unfreeze.rentRecipient?.equals(MINT_B)).to.be.true;
+    });
   });
 
   describe("PDA derivation routes through the canonical helpers", () => {
@@ -230,10 +256,13 @@ describe("SDK ComplianceHook Class", () => {
       const [mintConfig] = getMintConfigAddress(MINT_A);
       const [eaml] = getExtraAccountMetaListAddress(MINT_A);
       const [sl] = getSanctionsListAddress();
+      const [frozen] = getComplianceFrozenAccountAddress(MINT_A);
 
       expect(mintConfig.equals(eaml)).to.be.false;
       expect(mintConfig.equals(sl)).to.be.false;
+      expect(mintConfig.equals(frozen)).to.be.false;
       expect(eaml.equals(sl)).to.be.false;
+      expect(eaml.equals(frozen)).to.be.false;
     });
   });
 });

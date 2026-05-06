@@ -5,6 +5,8 @@ import { registerInitSanctionsListCommand } from "./initialize-sanctions-list";
 import { registerUpdateSanctionsListCommand } from "./update-sanctions-list";
 import { registerInitMintConfigCommand } from "./initialize-mint-config";
 import { registerInitEamlCommand } from "./initialize-eaml";
+import { registerFreezeAccountCommand } from "./freeze-account";
+import { registerUnfreezeAccountCommand } from "./unfreeze-account";
 
 export function registerComplianceCommands(program: Command): void {
   const compliance = program
@@ -14,6 +16,8 @@ export function registerComplianceCommands(program: Command): void {
     );
   registerInitSanctionsListCommand(compliance);
   registerUpdateSanctionsListCommand(compliance);
+  registerFreezeAccountCommand(compliance);
+  registerUnfreezeAccountCommand(compliance);
   registerInitMintConfigCommand(compliance);
   registerInitEamlCommand(compliance);
 }

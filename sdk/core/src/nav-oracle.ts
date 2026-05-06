@@ -301,9 +301,8 @@ export class NavOracle {
    * canonical payload + the on-chain publisher key.
    *
    * Local-key flow (tests, devnet operator scripts) should use this
-   * helper directly. The previous API required callers to bring their
-   * own crypto, which the `nav publish` CLI got wrong (it passed a
-   * 64-byte zero placeholder).
+   * helper directly; it keeps CLI/operator flows from accidentally
+   * sending an unsigned zero-filled signature.
    */
   static signPayload(
     publisher: Keypair,

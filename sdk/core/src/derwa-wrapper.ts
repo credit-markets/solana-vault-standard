@@ -34,7 +34,12 @@
  */
 
 import { BN, Program, AnchorProvider } from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram, Signer } from "@solana/web3.js";
+import {
+  PublicKey,
+  SystemProgram,
+  Signer,
+  type AccountMeta,
+} from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -146,6 +151,12 @@ export interface WrapParams {
   wrapperLockedAta?: PublicKey;
   /** Optional override for the investor's dePOOL ATA. Defaults to the canonical ATA. */
   investorDerwaAta?: PublicKey;
+  /**
+   * Token-2022 TransferHook extra accounts resolved from the cPOOL mint's EAML.
+   * Required when the permissioned cPOOL mint has an active hook and this
+   * instruction is invoked via CPI.
+   */
+  remainingAccounts?: AccountMeta[];
 }
 
 /**
@@ -168,6 +179,12 @@ export interface UnwrapParams {
   investorPermissionedAta?: PublicKey;
   /** Optional override for the investor's dePOOL ATA. */
   investorDerwaAta?: PublicKey;
+  /**
+   * Token-2022 TransferHook extra accounts resolved from the cPOOL mint's EAML.
+   * Required when the permissioned cPOOL mint has an active hook and this
+   * instruction is invoked via CPI.
+   */
+  remainingAccounts?: AccountMeta[];
 }
 
 // ============================================================
@@ -287,12 +304,15 @@ export class DeRwaWrapper {
     const methodsNs = program.methods as unknown as {
       wrap: (amount: BN) => {
         accountsPartial: (a: Record<string, PublicKey>) => {
+          remainingAccounts: (a: AccountMeta[]) => {
+            rpc: () => Promise<string>;
+          };
           rpc: () => Promise<string>;
         };
       };
     };
 
-    return methodsNs
+    const builder = methodsNs
       .wrap(params.amount)
       .accountsPartial({
         wrapperConfig: wrapperConfigPda.pda,
@@ -304,7 +324,11 @@ export class DeRwaWrapper {
         investorDerwaAta,
         investor: params.user,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
-      })
+      });
+
+    return (params.remainingAccounts?.length
+      ? builder.remainingAccounts(params.remainingAccounts)
+      : builder)
       .rpc()
       .then((sig) => {
         // Touch provider so unused-var lint doesn't fire on this branch.
@@ -366,12 +390,15 @@ export class DeRwaWrapper {
     const methodsNs = program.methods as unknown as {
       unwrap: (amount: BN) => {
         accountsPartial: (a: Record<string, PublicKey>) => {
+          remainingAccounts: (a: AccountMeta[]) => {
+            rpc: () => Promise<string>;
+          };
           rpc: () => Promise<string>;
         };
       };
     };
 
-    return methodsNs
+    const builder = methodsNs
       .unwrap(params.amount)
       .accountsPartial({
         wrapperConfig: wrapperConfigPda.pda,
@@ -384,8 +411,12 @@ export class DeRwaWrapper {
         investorAttestation: params.attestation,
         investor: params.user,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
-      })
-      .rpc();
+      });
+
+    return (params.remainingAccounts?.length
+      ? builder.remainingAccounts(params.remainingAccounts)
+      : builder
+    ).rpc();
   }
 
   /**

@@ -5,9 +5,11 @@ import { PublicKey } from "@solana/web3.js";
 import {
   COMPLIANCE_HOOK_PROGRAM_ID,
   EXTRA_ACCOUNT_METAS_SEED,
+  COMPLIANCE_FROZEN_ACCOUNT_SEED,
   MINT_CONFIG_SEED,
   SANCTIONS_LIST_SEED,
   deriveComplianceHookAddresses,
+  getComplianceFrozenAccountAddress,
   getExtraAccountMetaListAddress,
   getMintConfigAddress,
   getSanctionsListAddress,
@@ -38,11 +40,36 @@ describe("SDK ComplianceHook PDA Module", () => {
       expect(EXTRA_ACCOUNT_METAS_SEED.toString()).to.not.contain("_");
     });
 
+    it("COMPLIANCE_FROZEN_ACCOUNT_SEED encodes 'frozen'", () => {
+      expect(COMPLIANCE_FROZEN_ACCOUNT_SEED.toString()).to.equal("frozen");
+    });
+
     it("COMPLIANCE_HOOK_PROGRAM_ID matches deployed program ID", () => {
       expect(COMPLIANCE_HOOK_PROGRAM_ID.toBase58()).to.equal(
         "6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P",
       );
       expect(COMPLIANCE_HOOK_PROGRAM_ID).to.be.instanceOf(PublicKey);
+    });
+  });
+
+  describe("getComplianceFrozenAccountAddress", () => {
+    it("derives deterministic frozen account address", () => {
+      const [a1, b1] = getComplianceFrozenAccountAddress(MINT_A);
+      const [a2, b2] = getComplianceFrozenAccountAddress(MINT_A);
+      expect(a1.equals(a2)).to.be.true;
+      expect(b1).to.equal(b2);
+    });
+
+    it("different owners produce different frozen account addresses", () => {
+      const [pdaA] = getComplianceFrozenAccountAddress(MINT_A);
+      const [pdaB] = getComplianceFrozenAccountAddress(MINT_B);
+      expect(pdaA.equals(pdaB)).to.be.false;
+    });
+
+    it("different programIds produce different frozen account addresses", () => {
+      const [defaultPda] = getComplianceFrozenAccountAddress(MINT_A);
+      const [altPda] = getComplianceFrozenAccountAddress(MINT_A, ALT_PROGRAM_ID);
+      expect(defaultPda.equals(altPda)).to.be.false;
     });
   });
 

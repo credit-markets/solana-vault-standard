@@ -4,6 +4,7 @@ import {
   SystemProgram,
   SYSVAR_RENT_PUBKEY,
   SYSVAR_CLOCK_PUBKEY,
+  type AccountMeta,
 } from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
@@ -199,11 +200,10 @@ export class CreditVault {
 
     // initialize_pool binds the cPOOL mint's Token-2022 TransferHook
     // extension to compliance-hook in this tx. The dependent
-    // compliance-hook PDAs (MintConfig, EAML) and the infrastructure
-    // attestations (wrapper / vault / admin) are initialized by the
-    // deployment runbook in SEPARATE follow-up txs calling
-    // compliance-hook + mock-sas directly. See svs-11
-    // initialize_pool.rs for the cross-program invariant rationale.
+    // compliance-hook PDAs (MintConfig, EAML) and infrastructure
+    // attestations (wrapper / vault / admin) are initialized by direct
+    // compliance-hook + attestation-program calls after pool creation.
+    // See svs-11 initialize_pool.rs for the cross-program invariant rationale.
     await program.methods
       .initializePool(id, params.minimumInvestment, params.maxStaleness)
       .accountsPartial({
@@ -416,6 +416,7 @@ export class CreditVault {
     attestation: PublicKey,
     frozenCheck?: PublicKey,
     queuedForSettlementAt?: BN,
+    remainingAccounts?: AccountMeta[],
   ): Promise<string> {
     const [redemptionRequest] = getRedemptionRequestAddress(
       this.program.programId,
@@ -430,7 +431,7 @@ export class CreditVault {
     // date on first `approveRedeem` partial fulfillment.
     const queuedAt = queuedForSettlementAt ?? new BN(0);
 
-    return this.program.methods
+    const builder = this.program.methods
       .requestRedeem(shares, queuedAt)
       .accountsPartial({
         investor,
@@ -444,8 +445,12 @@ export class CreditVault {
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         clock: SYSVAR_CLOCK_PUBKEY,
-      })
-      .rpc();
+      });
+
+    return (remainingAccounts?.length
+      ? builder.remainingAccounts(remainingAccounts)
+      : builder
+    ).rpc();
   }
 
   async approveRedeem(

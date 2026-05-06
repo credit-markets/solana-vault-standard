@@ -1,10 +1,11 @@
 /**
  * PDA derivation helpers for the `compliance-hook` program.
  *
- * Three account families are derived under the program:
+ * Four account families are derived under the program:
  *   - `MintConfig`            seeds: [b"mint_config", mint]
  *   - `SanctionsList`         seeds: [b"sanctions_list"] (singleton)
  *   - `ExtraAccountMetaList`  seeds: [b"extra-account-metas", mint]
+ *   - `FrozenAccount`         seeds: [b"frozen", owner]
  *
  * NOTE: `extra-account-metas` uses HYPHENS (not underscores) — the seed is
  * fixed by the Token-2022 TransferHook spec.
@@ -20,6 +21,8 @@ export const SANCTIONS_LIST_SEED = Buffer.from("sanctions_list");
  * by the Token-2022 TransferHook interface spec — do NOT change.
  */
 export const EXTRA_ACCOUNT_METAS_SEED = Buffer.from("extra-account-metas");
+/** Seed for the per-owner global freeze marker PDA. */
+export const COMPLIANCE_FROZEN_ACCOUNT_SEED = Buffer.from("frozen");
 
 /** Deployed program ID for the compliance-hook program. */
 export const COMPLIANCE_HOOK_PROGRAM_ID = new PublicKey(
@@ -67,6 +70,22 @@ export function getExtraAccountMetaListAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [EXTRA_ACCOUNT_METAS_SEED, mint.toBuffer()],
+    programId,
+  );
+}
+
+/**
+ * Derive a global per-owner `FrozenAccount` PDA.
+ *
+ * Seeds: `[b"frozen", owner]`. Existence of this PDA causes the hook to
+ * reject transfers where `owner` is either the source or destination ATA owner.
+ */
+export function getComplianceFrozenAccountAddress(
+  owner: PublicKey,
+  programId: PublicKey = COMPLIANCE_HOOK_PROGRAM_ID,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [COMPLIANCE_FROZEN_ACCOUNT_SEED, owner.toBuffer()],
     programId,
   );
 }

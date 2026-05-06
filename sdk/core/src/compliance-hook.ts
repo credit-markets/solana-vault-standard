@@ -10,6 +10,8 @@
  *   - `initializeMintConfig`           (per-mint, sets compliance posture)
  *   - `initializeExtraAccountMetaList` (per-mint, Token-2022 hook PDA)
  *   - `updateSanctionsList`            (authority-gated, add/remove addrs)
+ *   - `freezeAccount` / `unfreezeAccount`
+ *                                      (authority-gated global freeze PDA)
  *   - `execute`                        (CPI'd by Token-2022 — not exposed
  *                                       here as a regular instance method;
  *                                       integrators do not call it directly)
@@ -29,6 +31,7 @@ import {
   getMintConfigAddress,
   getSanctionsListAddress,
   getExtraAccountMetaListAddress,
+  getComplianceFrozenAccountAddress,
 } from "./compliance-hook-pda";
 
 // =============================================================================
@@ -83,6 +86,11 @@ export interface SanctionsListState {
   version: BN;
   updatedAt: BN;
   addresses: PublicKey[];
+}
+
+/** On-chain `FrozenAccount` marker. Existence at `[b"frozen", owner]` freezes an owner. */
+export interface ComplianceFrozenAccountState {
+  bump: number;
 }
 
 // =============================================================================
@@ -140,6 +148,24 @@ export interface UpdateSanctionsListParams {
   additions?: PublicKey[];
   /** Addresses to remove (no-op if not present). */
   removals?: PublicKey[];
+}
+
+/** Args for {@link ComplianceHook.freezeAccount}. */
+export interface FreezeAccountParams {
+  /** Sanctions-list authority signer. */
+  authority: Keypair;
+  /** Source/destination owner to freeze globally across hook-bound mints. */
+  owner: PublicKey;
+}
+
+/** Args for {@link ComplianceHook.unfreezeAccount}. */
+export interface UnfreezeAccountParams {
+  /** Sanctions-list authority signer. */
+  authority: Keypair;
+  /** Owner whose `[b"frozen", owner]` PDA will be closed. */
+  owner: PublicKey;
+  /** Receives rent from the closed freeze PDA; defaults to `authority.publicKey`. */
+  rentRecipient?: PublicKey;
 }
 
 // =============================================================================
@@ -357,6 +383,54 @@ export class ComplianceHook {
     return signature;
   }
 
+  /**
+   * Freeze an owner globally across all hook-bound mints. Creates
+   * `[b"frozen", owner]`; transfers where the owner is source or destination
+   * will fail with `AccountFrozen`.
+   */
+  async freezeAccount(params: FreezeAccountParams): Promise<string> {
+    const provider = this.program.provider as AnchorProvider;
+    const [frozenAccount] = getComplianceFrozenAccountAddress(
+      params.owner,
+      this.programId,
+    );
+
+    return this.program.methods
+      .freezeAccount()
+      .accountsStrict({
+        sanctionsList: this.sanctionsListPda,
+        authority: params.authority.publicKey,
+        ownerToFreeze: params.owner,
+        frozenAccount,
+        payer: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([params.authority])
+      .rpc();
+  }
+
+  /**
+   * Unfreeze an owner by closing `[b"frozen", owner]`.
+   */
+  async unfreezeAccount(params: UnfreezeAccountParams): Promise<string> {
+    const [frozenAccount] = getComplianceFrozenAccountAddress(
+      params.owner,
+      this.programId,
+    );
+
+    return this.program.methods
+      .unfreezeAccount()
+      .accountsStrict({
+        sanctionsList: this.sanctionsListPda,
+        authority: params.authority.publicKey,
+        ownerToUnfreeze: params.owner,
+        frozenAccount,
+        rentRecipient: params.rentRecipient ?? params.authority.publicKey,
+      })
+      .signers([params.authority])
+      .rpc();
+  }
+
   // ---------------------------------------------------------------------------
   // Account fetchers
   // ---------------------------------------------------------------------------
@@ -389,6 +463,24 @@ export class ComplianceHook {
     )) as MintConfigState;
   }
 
+  /** Fetch and decode a `FrozenAccount` marker PDA. */
+  static async fetchFrozenAccount(
+    program: Program,
+    owner: PublicKey,
+  ): Promise<ComplianceFrozenAccountState> {
+    const [frozenAccount] = getComplianceFrozenAccountAddress(
+      owner,
+      program.programId,
+    );
+    const accountNs = program.account as Record<
+      string,
+      { fetch: (addr: PublicKey) => Promise<unknown> }
+    >;
+    return (await accountNs["frozenAccount"].fetch(
+      frozenAccount,
+    )) as ComplianceFrozenAccountState;
+  }
+
   // ---------------------------------------------------------------------------
   // PDA pass-throughs (so callers don't need to import compliance-hook-pda
   // separately when they already hold a class instance)
@@ -404,6 +496,10 @@ export class ComplianceHook {
 
   getSanctionsListAddress(): PublicKey {
     return this.sanctionsListPda;
+  }
+
+  getFrozenAccountAddress(owner: PublicKey): PublicKey {
+    return getComplianceFrozenAccountAddress(owner, this.programId)[0];
   }
 }
 

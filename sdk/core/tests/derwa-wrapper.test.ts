@@ -38,6 +38,12 @@ const DeRwaErrorCode: Record<string, number> = fs.existsSync(IDL_PATH)
       attestationRequired: 14001,
       insufficientLockedSupply: 14002,
       mintMismatch: 14003,
+      invalidAttestationProgram: 14004,
+      invalidAttestationSubject: 14005,
+      invalidAttestationIssuer: 14006,
+      invalidAttestationType: 14007,
+      invalidAttestationPda: 14008,
+      invalidAttestationConfig: 14009,
     };
 
 describe("SDK DeRwaWrapper Module", () => {
@@ -146,6 +152,21 @@ describe("SDK DeRwaWrapper Module", () => {
       expect(params.investorDerwaAta?.equals(investorDerwaAta)).to.be.true;
     });
 
+    it("compiles with optional TransferHook remaining accounts", () => {
+      const params: WrapParams = {
+        user: USER,
+        amount: new BN(42),
+        remainingAccounts: [
+          { pubkey: POOL, isSigner: false, isWritable: false },
+          { pubkey: PERMISSIONED_MINT, isSigner: false, isWritable: false },
+        ],
+      };
+
+      expect(params.remainingAccounts).to.have.length(2);
+      expect(params.remainingAccounts?.[0].pubkey.equals(POOL)).to.be.true;
+      expect(params.remainingAccounts?.[1].isWritable).to.be.false;
+    });
+
     it("amount is a BN (precision-safe for u64)", () => {
       const big = new BN("18446744073709551615"); // u64::MAX
       const params: WrapParams = { user: USER, amount: big };
@@ -190,6 +211,22 @@ describe("SDK DeRwaWrapper Module", () => {
         .to.be.true;
       expect(params.investorDerwaAta?.equals(investorDerwaAta)).to.be.true;
     });
+
+    it("compiles with optional TransferHook remaining accounts", () => {
+      const params: UnwrapParams = {
+        user: USER,
+        amount: new BN(1),
+        attestation: ATTESTATION,
+        remainingAccounts: [
+          { pubkey: POOL, isSigner: false, isWritable: false },
+          { pubkey: PERMISSIONED_MINT, isSigner: false, isWritable: false },
+        ],
+      };
+
+      expect(params.remainingAccounts).to.have.length(2);
+      expect(params.remainingAccounts?.[0].pubkey.equals(POOL)).to.be.true;
+      expect(params.remainingAccounts?.[1].isSigner).to.be.false;
+    });
   });
 
   describe("Integration with PDA helpers", () => {
@@ -223,12 +260,27 @@ describe("SDK DeRwaWrapper Module", () => {
       expect(DeRwaErrorCode.mintMismatch).to.be.a("number");
     });
 
+    it("includes attestation identity-binding errors", () => {
+      expect(DeRwaErrorCode.invalidAttestationProgram).to.be.a("number");
+      expect(DeRwaErrorCode.invalidAttestationSubject).to.be.a("number");
+      expect(DeRwaErrorCode.invalidAttestationIssuer).to.be.a("number");
+      expect(DeRwaErrorCode.invalidAttestationType).to.be.a("number");
+      expect(DeRwaErrorCode.invalidAttestationPda).to.be.a("number");
+      expect(DeRwaErrorCode.invalidAttestationConfig).to.be.a("number");
+    });
+
     it("error codes are distinct", () => {
       const codes = [
         DeRwaErrorCode.zeroAmount,
         DeRwaErrorCode.attestationRequired,
         DeRwaErrorCode.insufficientLockedSupply,
         DeRwaErrorCode.mintMismatch,
+        DeRwaErrorCode.invalidAttestationProgram,
+        DeRwaErrorCode.invalidAttestationSubject,
+        DeRwaErrorCode.invalidAttestationIssuer,
+        DeRwaErrorCode.invalidAttestationType,
+        DeRwaErrorCode.invalidAttestationPda,
+        DeRwaErrorCode.invalidAttestationConfig,
       ];
       const unique = new Set(codes);
       expect(unique.size).to.equal(codes.length);
