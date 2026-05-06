@@ -1,31 +1,26 @@
 //! Bootstrap the compliance-hook `MintConfig` + `ExtraAccountMetaList`
 //! PDAs for a CreditVault's shares mint (cPOOL).
 //!
-//! ── WHY THIS INSTRUCTION EXISTS ───────────────────────────────────────
+//! ── ARCHITECTURE ──────────────────────────────────────────────────────
 //! `initialize_pool` creates the shares mint with the Token-2022
 //! `TransferHook` extension bound to `compliance-hook` and sets the
 //! vault PDA as the mint authority. compliance-hook's typed init
 //! handlers (`initialize_mint_config`, `initialize_extra_account_meta_list`)
 //! both require a `Signer == mint_authority` to authorize the binding.
-//! The vault PDA cannot top-level-sign a transaction, so the operator
-//! cannot directly invoke compliance-hook's init handlers as a follow-up
-//! tx. The architectural answer is to CPI into compliance-hook from
-//! svs-11 with `vault_seeds` so the vault PDA satisfies the `Signer`
-//! constraint via Anchor's `invoke_signed` flow.
+//! Since vault is a PDA, that signer must come from `invoke_signed`
+//! inside an svs-11 instruction — which is what this handler does:
+//! it CPIs into compliance-hook with `vault_seeds`, satisfying the
+//! `Signer` constraint without requiring a separate top-level call.
 //!
-//! Earlier drafts of svs-11 had a comment in `initialize_pool.rs:222-233`
-//! claiming this CPI fails with "signer privilege escalated" — the claim
-//! was based on an incorrect reading of how Anchor's `init` constraint
-//! interacts with cross-program PDAs. Anchor 0.31's `to_account_metas`
-//! emits `is_signer: false` for an init'd PDA (see anchor-syn-0.31.1
-//! `Constraints::is_signer` — only the explicit `signer` constraint
-//! flags `is_signer = true`). The PDA's signing happens INSIDE the
-//! owning program via `CpiContext::with_signer(&[seeds_with_nonce])`
-//! against `system_program::create_account`, fully transparent to the
-//! outer caller. So the CPI is structurally fine; the previous error
-//! was likely from a different code path (probably a direct
-//! `system_program::create_account` from svs-11 that did fail because
-//! svs-11 doesn't own the PDA's seeds).
+//! Anchor's `init` constraint composes correctly through this CPI:
+//! init'd PDAs are emitted with `is_signer: false` in
+//! `to_account_metas` (only the explicit `signer` constraint sets the
+//! flag), and the PDA's signature for `system_program::create_account`
+//! is supplied INSIDE compliance-hook via
+//! `CpiContext::with_signer(&[seeds_with_nonce])`. The outer svs-11
+//! caller does not need to prove any privilege over the cross-program
+//! PDA being created — that's compliance-hook's responsibility, and
+//! it's discharged by Anchor's macro expansion of `init`.
 //!
 //! ── BOOTSTRAP FLOW ────────────────────────────────────────────────────
 //! Operator workflow after `initialize_pool`:

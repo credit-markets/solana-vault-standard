@@ -139,14 +139,15 @@ for frozen investor`. Each cPOOL transfer goes through the active
 Permissioned hook with full identity-binding validation (owner /
 subject / issuer / type / canonical PDA).
 
-The earlier comment in `initialize_pool.rs` claiming the CPI bootstrap
-fails with "signer privilege escalated" was empirically wrong —
-anchor-syn 0.31's `Constraints::is_signer()` only marks explicit
-`signer` constraints, and init'd PDAs sign internally via
-`CpiContext::with_signer(&[seeds_with_nonce])` inside the owning
-program. The corrected comment in `initialize_pool.rs` documents the
-actual architecture; `bootstrap_shares_compliance` is the canonical
-bootstrap step.
+`bootstrap_shares_compliance` is the canonical bootstrap step.
+Anchor's `init` constraint composes correctly through cross-program
+CPI: the init'd PDA is emitted with `is_signer: false` in the outer
+account-meta list (only the explicit `signer` constraint sets the
+flag), and the PDA's `system_program::create_account` signature is
+supplied INSIDE compliance-hook via
+`CpiContext::with_signer(&[seeds_with_nonce])`. svs-11's CPI just
+needs to satisfy the `Signer == mint_authority` constraint, which it
+does by passing `vault_seeds` to `invoke_signed`.
 
 **Note:** SVS-3/SVS-4 confidential transfer tests require the proof backend running (`cd proofs-backend && cargo run`). Without it, CT-dependent tests are automatically skipped.
 

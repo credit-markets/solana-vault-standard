@@ -227,15 +227,6 @@ pub fn handler(
     // bind cPOOL in `FreelyTransferable` mode initially and flip to
     // `Permissioned` later by re-init'ing the EAML — without re-deploying
     // the pool itself.
-    //
-    // (The earlier draft of this comment claimed cross-program PDA
-    // CPI fails with "signer privilege escalated." That claim was
-    // wrong: anchor-syn 0.31's `Constraints::is_signer()` only marks
-    // explicit `signer` constraints — init'd PDAs emit `is_signer:
-    // false` in `to_account_metas`, and `system_program::create_account`
-    // signs internally via `CpiContext::with_signer(&[seeds_with_nonce])`
-    // inside the owning program. Empirically validated by
-    // `bootstrap_shares_compliance` + `tests/svs-11.ts`.)
     invoke(
         &initialize_transfer_hook(
             &ctx.accounts.token_2022_program.key(),

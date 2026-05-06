@@ -642,15 +642,16 @@ export class CreditVault {
   async cancelRedeem(
     investor: PublicKey,
     /// Token-2022 TransferHook extras for the cPOOL `transfer_checked`
-    /// CPI (direction: source = vault PDA, destination = investor —
-    /// opposite of `request_redeem`). Required when the cPOOL mint has
-    /// an active TransferHook extension; the on-chain handler extends
-    /// its inner ix with `add_extra_accounts_for_execute_cpi` from
-    /// these. Omit only for cPOOL mints without a hook bound (legacy
-    /// pre-iteration-2 deployments) — modern svs-11 deployments ALWAYS
-    /// bind compliance-hook on cPOOL via `initialize_pool`, so callers
-    /// should always pass the resolved extras for the
-    /// `(source = vault, destination = investor)` direction.
+    /// CPI. The cancel-redemption transfer moves cPOOL from the vault's
+    /// redemption escrow back to the investor, so the EAML must resolve
+    /// the attestation PDAs for `(source = vault, destination = investor)`
+    /// — the opposite direction of `requestRedeem`. svs-11's
+    /// `initialize_pool` always binds the TransferHook extension on
+    /// cPOOL, so production callers must always pass the resolved
+    /// extras here; the on-chain handler forwards them through
+    /// `add_extra_accounts_for_execute_cpi` into the inner CPI. The
+    /// optional shape preserves the bare bones for unit tests against
+    /// hookless mints.
     remainingAccounts?: AccountMeta[],
   ): Promise<string> {
     const [redemptionRequest] = getRedemptionRequestAddress(
