@@ -214,16 +214,11 @@ Per-pool NAV oracle for credit-grade pricing. Off-chain publisher signs a canoni
 - Wired the SVS-11 credit command group into the CLI top-level (was authored but never registered before this PR)
 - See `docs/CLI.md`.
 
-#### Operator scripts (reference institutional deployment)
-These are reference scripts demonstrating one institutional deployment pattern (Squads V4 multisig + 3-vault Guardian model). They are NOT required SVS core behavior.
+#### Operator scripts (reference deployment)
+Reference scripts demonstrating canonical deployment patterns for the new programs. Generic enough to be reused by any SVS deployer; deployment-specific orchestration (multisig topology, runbook stages, in-place upgrade tooling) lives in deployer-side ops repos rather than the SVS standard tree.
 
-- `deploy-guardian-vaults.ts` — deploys 3 Squads V4 vaults (Protocol/Ops/Emergency Guardian), reads treasury from Squads `ProgramConfig` PDA
-- `bootstrap-signers.ts` — staged Squads quorum bootstrap (Stage 0 deployer-only → 1 add signers → 1.5 prove-of-key-custody → 2 ratchet threshold + remove deployer → 3 verify quorum)
-- `migrate-authorities.ts` — rotates non-svs-11 authorities to Guardian Squads vaults; gated on `bootstrap_stage = stage_3_verified`
 - `initialize-nav-account.ts` — per-pool NavAccount initialization (sentinel-pubkey hardened)
 - `create-derwa-mint.ts` — Token-2022 dePOOL mint with TransferHook + MintConfig + ExtraAccountMetaList wiring
-- `bootstrap-demo-pool.ts` — devnet demo pool driver
-- `drain-redemption-requests.ts` — pre-flight maintenance for SVS-11 in-place upgrades
 
 #### Tests
 - `tests/compliance-hook.spec.ts` (new) — active sanctions-list + freeze/unfreeze authority tests, FreelyTransferable hook execution, Permissioned hook execution, destination-missing attestation rejection, and EAML creation coverage, plus visible pending cases for deeper negative-path coverage

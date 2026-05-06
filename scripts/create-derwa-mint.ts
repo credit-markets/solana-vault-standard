@@ -62,9 +62,8 @@ import type { ComplianceHook } from "../target/types/compliance_hook";
 
 // ─── CLI parsing ────────────────────────────────────────────────────────────
 //
-// Convention: match drain-redemption-requests.ts's hand-rolled loop parser
-// (yargs is not in package.json deps; the spec's yargs example is illustrative
-// only — the repo uses vanilla process.argv parsing).
+// Hand-rolled loop parser; yargs is not in package.json deps so we use
+// vanilla process.argv parsing throughout the operator scripts.
 
 interface Args {
   pool: string;
