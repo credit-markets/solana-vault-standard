@@ -68,9 +68,9 @@ pub enum ComplianceMode {
 ///
 /// `pool_policy` reserves the 33-byte max-case so layout is fixed-size;
 /// the `Option<Pubkey>` byte at offset 41 is the discriminator
-/// (0 = None, 1 = Some). `pool_policy` lives at byte offset
-/// `8 + 34 = 42` inside the account; the ExtraAccountMetaList builder
-/// consumes that offset.
+/// (0 = None, 1 = Some). The ExtraAccountMetaList builder reads the
+/// configured `pool_policy` value and stores it as a fixed pubkey extra
+/// in Permissioned mode.
 ///
 /// Trust-anchor fields (`attestation_program`, `attestation_issuer`,
 /// `required_attestation_type`) are appended AFTER pool_policy to
@@ -105,4 +105,30 @@ impl MintConfig {
     /// + 32 (attestation_program) + 32 (attestation_issuer) + 1 (required_attestation_type)
     /// = 139 bytes (max-case `Option<Pubkey>` reserves all 33 fixed bytes).
     pub const SPACE: usize = 8 + 32 + 1 + 1 + 32 + 32 + 32 + 1;
+}
+
+/// Per-wallet freeze marker. Existence at `[b"frozen", owner]` indicates
+/// that the wallet is frozen across ALL hook-bound mints; `execute` reads
+/// `lamports() > 0 && data_len() > 0` and rejects with `AccountFrozen`.
+///
+/// Authority: created and closed by `freeze_account` / `unfreeze_account`,
+/// gated by `SanctionsList.authority` (typically the Ops Guardian Squads
+/// vault). This is intentionally a coarser policy than per-vault freezes
+/// (e.g. SVS-11's `[b"frozen_account", vault, investor]`) — compliance-hook
+/// is a generic Token-2022 transfer hook and a single freeze authority
+/// makes operational sense for the Ops Guardian to manage across mints.
+///
+/// The struct itself carries only `bump` so the account has a non-empty,
+/// well-formed body; the freeze CHECK in `execute` is purely existence-
+/// based, but a typed account makes `unfreeze_account`'s `close = recipient`
+/// constraint clean.
+#[account]
+pub struct FrozenAccount {
+    pub bump: u8,
+}
+
+impl FrozenAccount {
+    pub const SEED_PREFIX: &'static [u8] = b"frozen";
+    /// 8 (discriminator) + 1 (bump) = 9 bytes.
+    pub const SPACE: usize = 8 + 1;
 }

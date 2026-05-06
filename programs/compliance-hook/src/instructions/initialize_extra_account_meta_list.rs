@@ -13,13 +13,13 @@ use crate::state::{ComplianceMode, MintConfig, SanctionsList};
 /// looks up exactly `b"extra-account-metas"`.
 pub const EXTRA_ACCOUNT_METAS_SEED: &[u8] = b"extra-account-metas";
 
-/// Capacity sized for max-case (`Permissioned` mode = 7 extras) so that
-/// a later `set_compliance_mode` admin call can mutate the mode in
-/// place without reallocating this PDA. The
-/// `FreelyTransferable` mode underuses the slack, but the per-PDA waste
-/// (~3 ExtraAccountMeta entries = ~105 bytes) is acceptable in exchange
+/// Capacity sized for max-case (`Permissioned` mode = 8 extras: 4 fixed-program
+/// PDAs + 1 fixed pubkey for the attestation program + 2 cross-program
+/// PDAs for source/destination attestations + 1 fixed pubkey for pool_policy).
+/// `FreelyTransferable` underuses the slack (4 entries), but the per-PDA
+/// waste (~4 ExtraAccountMeta entries = ~140 bytes) is acceptable in exchange
 /// for avoiding realloc CPIs on mode switches.
-const MAX_EXTRA_METAS: usize = 7;
+const MAX_EXTRA_METAS: usize = 8;
 
 #[derive(Accounts)]
 pub struct InitializeExtraAccountMetaList<'info> {
@@ -36,18 +36,17 @@ pub struct InitializeExtraAccountMetaList<'info> {
     )]
     pub extra_account_meta_list: AccountInfo<'info>,
 
-    /// CHECK: the Token-2022 mint this hook is bound to. We do NOT
-    /// validate the mint's TransferHook extension authority here — the
-    /// mint creation flows (cPOOL via SVS-11 `initialize_pool`; dePOOL
-    /// via the deRWA wrapper init) own that wiring and call this
-    /// instruction as a CPI from those entry points. The
-    /// `mint_authority` signer below provides the access-control gate.
+    /// CHECK: the Token-2022 mint this hook is bound to. The handler
+    /// validates `mint.owner == spl_token_2022::id()` to reject legacy
+    /// SPL mints and `mint.mint_authority == mint_authority.key()` for
+    /// per-mint EAML init authority.
     pub mint: UncheckedAccount<'info>,
 
     /// Per-mint configuration. Mode is read directly via the typed
-    /// `Account<'info, MintConfig>` wrapper, which Anchor validates
-    /// against the canonical seeds before this handler runs — safer
-    /// than a raw byte read.
+    /// `Account<'info, MintConfig>` wrapper. The handler also reads
+    /// `attestation_program` for `Permissioned` mode to bake into the
+    /// EAML's attestation-program extra (used as `program_index` for the
+    /// cross-program PDA derivation of source/destination attestations).
     #[account(
         seeds = [MintConfig::SEED_PREFIX, mint.key().as_ref()],
         bump,
@@ -89,12 +88,9 @@ pub fn handler(ctx: Context<InitializeExtraAccountMetaList>) -> Result<()> {
         crate::error::ComplianceHookError::InvalidMintAccount
     );
 
-    // (audit #9) Verify the signer is the actual mint authority. The
-    // mint-config init does this; without it here, a stranger could
-    // race-create the EAML for a mint that has a MintConfig (or one
-    // they're about to MintConfig themselves), pinning it to the wrong
-    // EAML. Reading mint_authority off the unpacked mint avoids relying
-    // on the EAML PDA's `init` constraint as the only access gate.
+    // Verify the signer is the actual mint authority. Reading
+    // mint_authority off the unpacked mint avoids relying on the EAML
+    // PDA's `init` constraint as the only access gate.
     let mint_data = ctx.accounts.mint.try_borrow_data()?;
     let mint_state = Token2022Mint::unpack(&mint_data[..Token2022Mint::LEN])
         .map_err(|_| crate::error::ComplianceHookError::InvalidMintAccount)?;
@@ -109,7 +105,11 @@ pub fn handler(ctx: Context<InitializeExtraAccountMetaList>) -> Result<()> {
     );
 
     let mode = ctx.accounts.mint_config.mode;
-    let extra_metas = build_extra_account_metas(mode)?;
+    let extra_metas = build_extra_account_metas(
+        mode,
+        &ctx.accounts.mint_config.attestation_program,
+        ctx.accounts.mint_config.pool_policy.as_ref(),
+    )?;
 
     let mut data = ctx.accounts.extra_account_meta_list.try_borrow_mut_data()?;
     ExtraAccountMetaList::init::<ExecuteInstruction>(&mut data, &extra_metas)?;
@@ -127,23 +127,41 @@ pub fn handler(ctx: Context<InitializeExtraAccountMetaList>) -> Result<()> {
 ///
 /// Order matters: the Token-2022 runtime appends these entries to the
 /// canonical 4 accounts (source_ata, mint, destination_ata, source_owner)
-/// when invoking `execute`, in the exact order returned here. Any
-/// reordering invalidates the `Seed::AccountKey` / `Seed::AccountData`
-/// indices used for derivation.
+/// PLUS the EAML PDA itself (inserted at index 4 by
+/// `spl-transfer-hook-interface::onchain::invoke_execute`) when invoking
+/// `execute`. Resolved extras land at indices 5+ in the CPI account list,
+/// and the SPL TLV resolver evaluates each `Seed::AccountKey` /
+/// `Seed::AccountData` against the running CPI list (canonical 4 + EAML
+/// PDA + extras already pushed). Any reordering invalidates the indices.
 ///
-/// Index layout in `execute`'s account list after resolution:
-///   0 source_ata          (canonical)
-///   1 mint                (canonical)
-///   2 destination_ata     (canonical)
-///   3 source_owner        (canonical)
-///   4 mint_config         (FIRST extra)
-///   5 sanctions_list
-///   6 source_frozen_check
-///   7 destination_frozen_check
-///   8 source_attestation       (Permissioned only)
-///   9 destination_attestation  (Permissioned only)
-///   10 pool_policy             (Permissioned only)
-fn build_extra_account_metas(mode: ComplianceMode) -> Result<Vec<ExtraAccountMeta>> {
+/// Index layout in `execute`'s CPI account list after resolution:
+///
+///   FreelyTransferable mode (4 extras → 9 total CPI accounts):
+///     0 source_ata          (canonical)
+///     1 mint                (canonical)
+///     2 destination_ata     (canonical)
+///     3 source_owner        (canonical)
+///     4 extra_account_meta_list  (inserted by Token-2022)
+///     5 mint_config         (FIRST extra)
+///     6 sanctions_list
+///     7 source_frozen_check
+///     8 destination_frozen_check
+///
+///   Permissioned mode (8 extras → 13 total CPI accounts):
+///     0..8 same as FreelyTransferable
+///     9 attestation_program      (fixed pubkey, baked from
+///                                 MintConfig.attestation_program at
+///                                 EAML-init time)
+///    10 source_attestation       (cross-program PDA under index 9,
+///                                 seeds [b"attestation", source_owner,
+///                                 attestation_issuer, attestation_type])
+///    11 destination_attestation  (same shape, dest_owner)
+///    12 pool_policy              (fixed pubkey from MintConfig.pool_policy)
+fn build_extra_account_metas(
+    mode: ComplianceMode,
+    attestation_program: &Pubkey,
+    pool_policy: Option<&Pubkey>,
+) -> Result<Vec<ExtraAccountMeta>> {
     let mut v = vec![
         // mint_config: PDA at [b"mint_config", mint] under our program.
         // The `mint` is canonical account index 1.
@@ -167,7 +185,9 @@ fn build_extra_account_metas(mode: ComplianceMode) -> Result<Vec<ExtraAccountMet
         )?,
         // source_frozen_check: PDA at [b"frozen", source_owner].
         // `source_owner` lives at bytes 32..64 of `source_ata` (canonical
-        // index 0) per the SPL Token-2022 account layout.
+        // index 0) per the SPL Token-2022 account layout. The
+        // FrozenAccount PDA is created/closed by `freeze_account` /
+        // `unfreeze_account` instructions.
         ExtraAccountMeta::new_with_seeds(
             &[
                 Seed::Literal {
@@ -201,42 +221,37 @@ fn build_extra_account_metas(mode: ComplianceMode) -> Result<Vec<ExtraAccountMet
     ];
 
     if mode == ComplianceMode::Permissioned {
-        // ── ITERATION-2 KNOWN GAP — EAML attestation seed mismatch ────
-        // The two `attestation` extras below derive PDAs using the
-        // single-seed convention `[b"attestation", owner]` under THIS
-        // program (compliance-hook) — but the canonical SVS-11 / mock-sas
-        // attestation PDAs are seeded as
-        // `[b"attestation", subject, issuer, attestation_type]` under the
-        // attestation PROGRAM (not compliance-hook).
-        //
-        // Consequences with the current wiring:
-        //   - The Token-2022 runtime resolves a PDA that does NOT exist
-        //     (no one creates accounts at this address), so the runtime
-        //     passes a default-zero account.
-        //   - `execute::check_attestation` then fails with
-        //     `AttestationNotFound` (6002) on the existence check.
-        //   - Net effect: Permissioned mode is fail-CLOSED at runtime
-        //     (no transfer can succeed). It is NOT exploitable, but it
-        //     is also NOT functional.
-        //
-        // The defense-in-depth validation in `check_attestation` (owner
-        // / subject / issuer / type / canonical PDA) makes the failure
-        // mode safe even if a user tries to manually pass a different
-        // account list to the hook program directly.
-        //
-        // The proper fix (iteration 2) requires `new_external_pda_with_seeds`
-        // with `program_index` pointing to a fixed account whose key
-        // equals `mint_config.attestation_program`, plus seeds
-        // `[Literal(b"attestation"), AccountData(source_ata bytes 32..64),
-        // AccountData(mint_config.attestation_issuer field),
-        // AccountData(mint_config.attestation_type byte)]`. That requires
-        // adding an `attestation_program` extra account (capacity bump to
-        // 8) and updating the mint-config init flow to bake in the
-        // attestation program key. Documented in
-        // docs/compliance-hook.md "Iteration 2 follow-ups".
+        // attestation_program: fixed pubkey baked from
+        // MintConfig.attestation_program. Required as a separate extra
+        // because `new_external_pda_with_seeds` (used below) takes a
+        // `program_index` — it derives the source/destination
+        // attestation PDAs against the program at THIS index in the
+        // resolved account list. Reading at EAML-init time and baking
+        // means rotation requires re-init; for the current threat model
+        // (per-pool trust anchor, set once) that's acceptable.
+        v.push(ExtraAccountMeta::new_with_pubkey(
+            attestation_program,
+            false,
+            false,
+        )?);
 
-        // source_attestation: PLACEHOLDER seed (see KNOWN GAP above).
-        v.push(ExtraAccountMeta::new_with_seeds(
+        // source_attestation: cross-program PDA at
+        //   [b"attestation", source_owner, attestation_issuer, attestation_type]
+        // derived under MintConfig.attestation_program (the account at
+        // CPI index 9 in the resolved list — see CPI index map at the
+        // top of this function).
+        //
+        // Seed sources (account_index resolved against the running CPI
+        // account list, which has the canonical 4 + EAML PDA inserted
+        // at index 4 by Token-2022 + the extras pushed before this entry):
+        //   - source_owner: source_ata (CPI index 0) bytes 32..64
+        //   - attestation_issuer: mint_config (CPI index 5) bytes 106..138
+        //     (MintConfig layout: discriminator 8 + mint 32 + mode 1 +
+        //      Option_tag 1 + Pubkey 32 + attestation_program 32 = 106;
+        //      attestation_issuer is the next 32 bytes)
+        //   - attestation_type: mint_config (CPI index 5) byte 138
+        v.push(ExtraAccountMeta::new_external_pda_with_seeds(
+            9, // program_index → attestation_program (CPI index 9)
             &[
                 Seed::Literal {
                     bytes: b"attestation".to_vec(),
@@ -246,12 +261,24 @@ fn build_extra_account_metas(mode: ComplianceMode) -> Result<Vec<ExtraAccountMet
                     data_index: 32,
                     length: 32,
                 },
+                Seed::AccountData {
+                    account_index: 5,
+                    data_index: 106,
+                    length: 32,
+                },
+                Seed::AccountData {
+                    account_index: 5,
+                    data_index: 138,
+                    length: 1,
+                },
             ],
             false,
             false,
         )?);
-        // destination_attestation: PLACEHOLDER seed (see KNOWN GAP above).
-        v.push(ExtraAccountMeta::new_with_seeds(
+
+        // destination_attestation: same shape with destination_ata (CPI index 2).
+        v.push(ExtraAccountMeta::new_external_pda_with_seeds(
+            9, // program_index → attestation_program (CPI index 9)
             &[
                 Seed::Literal {
                     bytes: b"attestation".to_vec(),
@@ -261,38 +288,31 @@ fn build_extra_account_metas(mode: ComplianceMode) -> Result<Vec<ExtraAccountMet
                     data_index: 32,
                     length: 32,
                 },
+                Seed::AccountData {
+                    account_index: 5,
+                    data_index: 106,
+                    length: 32,
+                },
+                Seed::AccountData {
+                    account_index: 5,
+                    data_index: 138,
+                    length: 1,
+                },
             ],
             false,
             false,
         )?);
-        // pool_policy: read from `mint_config.pool_policy` field.
-        //
-        // CRITICAL: `account_index` MUST be 4, NOT 5.
-        // The Token-2022 runtime resolves `Seed::AccountData` against
-        // the COMPLETE account list (canonical 4 + already-pushed
-        // extras), so:
-        //   0 = source_ata          (canonical)
-        //   1 = mint                (canonical)
-        //   2 = destination_ata     (canonical)
-        //   3 = source_owner        (canonical)
-        //   4 = mint_config         (FIRST extra — pushed first above)
-        //   5 = sanctions_list      (second extra)
-        //   ...
-        // An earlier draft used `account_index: 5`, which would read
-        // `sanctions_list` bytes and produce a garbage PDA derivation
-        // that fails every Permissioned-mode transfer.
-        //
-        // `pool_policy` field offset within `MintConfig` account data:
-        //   discriminator(8) + mint(32) + mode(1) + Option tag(1) = 42
-        // The 32-byte pubkey then sits at bytes 42..74. The `Option`
-        // tag at offset 41 is 0=None / 1=Some; the seed derivation only
-        // makes sense when tag=1 (Permissioned mode binds a policy).
-        v.push(ExtraAccountMeta::new_with_seeds(
-            &[Seed::AccountData {
-                account_index: 4,
-                data_index: 8 + 32 + 1 + 1,
-                length: 32,
-            }],
+
+        // pool_policy: fixed pubkey baked from MintConfig.pool_policy.
+        // It may be owned by another program, so deriving it as a PDA
+        // under compliance-hook would resolve the wrong account. A
+        // policy rotation therefore requires re-initializing the EAML,
+        // which matches the current "set once per mint" posture.
+        let pool_policy = pool_policy.ok_or(
+            crate::error::ComplianceHookError::MissingPoolPolicyForPermissioned,
+        )?;
+        v.push(ExtraAccountMeta::new_with_pubkey(
+            pool_policy,
             false,
             false,
         )?);

@@ -11,15 +11,15 @@ use crate::state::{ComplianceMode, MintConfig, SanctionsList};
 /// `Seed::AccountKey { index: N }` against these positions, so the order here
 /// is load-bearing.
 ///
-/// Permissioned-mode extras (`source_attestation`, `destination_attestation`,
-/// `pool_policy`) are declared as `Option<UncheckedAccount>` so a single
-/// `Execute` struct serves both modes. The Token-2022 runtime resolves the
-/// EAML at the canonical seed (`b"extra-account-metas"`), and that PDA holds
-/// 4 entries for `FreelyTransferable` and 7 for `Permissioned`.
-/// Anchor 0.31's `Option<T>` account binding accepts a missing tail of
-/// accounts as `None`, which matches the runtime's truncated invocation in
-/// `FreelyTransferable` mode. The handler branches on `mint_config.mode` and
-/// only touches the `Some` arms when `Permissioned`.
+/// Permissioned-mode extras (`attestation_program`, `source_attestation`,
+/// `destination_attestation`, `pool_policy`) come in via
+/// `ctx.remaining_accounts` rather than typed fields on this struct.
+/// Anchor 0.31's `Option<T>` account binding requires explicit placeholder
+/// pubkeys for missing accounts and does NOT silently bind `None` when the
+/// runtime invokes with a truncated account list (the FreelyTransferable
+/// case). Reading the 4 Permissioned extras from `remaining_accounts`
+/// handles both modes uniformly: 0 entries when FreelyTransferable, 4
+/// entries when Permissioned (validated against `mint_config.mode`).
 #[derive(Accounts)]
 pub struct Execute<'info> {
     /// CHECK: source ATA — owner read from offset 32..64 of account data.
@@ -38,8 +38,25 @@ pub struct Execute<'info> {
     /// Index 3.
     pub source_owner: UncheckedAccount<'info>,
 
-    /// Per-mint configuration; mode discriminator drives the branch below.
+    /// CHECK: ExtraAccountMetaList PDA — Token-2022's `invoke_execute`
+    /// inserts THIS account at index 4 of the CPI account list (BEFORE
+    /// the resolved EAML extras), per `spl-transfer-hook-interface`'s
+    /// `onchain::invoke_execute`. Without surfacing it in our Accounts
+    /// struct, Anchor would interpret index 4 as the first resolved
+    /// extra (mint_config) and fail with `AccountDiscriminatorMismatch`
+    /// because the EAML's data does not match the MintConfig shape.
+    /// We validate it via the canonical seed constraint
+    /// `[b"extra-account-metas", mint]` so a forged value can't be
+    /// substituted by a malicious caller.
     /// Index 4.
+    #[account(
+        seeds = [crate::instructions::initialize_extra_account_meta_list::EXTRA_ACCOUNT_METAS_SEED, mint.key().as_ref()],
+        bump,
+    )]
+    pub extra_account_meta_list: UncheckedAccount<'info>,
+
+    /// Per-mint configuration; mode discriminator drives the branch below.
+    /// Index 5.
     #[account(
         seeds = [MintConfig::SEED_PREFIX, mint.key().as_ref()],
         bump,
@@ -47,7 +64,7 @@ pub struct Execute<'info> {
     pub mint_config: Account<'info, MintConfig>,
 
     /// Global sanctions list (singleton PDA).
-    /// Index 5.
+    /// Index 6.
     #[account(
         seeds = [SanctionsList::SEED_PREFIX],
         bump,
@@ -56,34 +73,18 @@ pub struct Execute<'info> {
 
     /// CHECK: optional `FrozenAccount` PDA for source. Existence indicates
     /// frozen; an absent PDA shows up here as a default-zero account.
-    /// Index 6.
+    /// Index 7.
     pub source_frozen_check: UncheckedAccount<'info>,
 
     /// CHECK: optional `FrozenAccount` PDA for destination. Same semantics.
-    /// Index 7.
+    /// Index 8.
     pub destination_frozen_check: UncheckedAccount<'info>,
 
-    /// CHECK: SVS-11-shaped Attestation PDA for the source-ATA owner. Required
-    /// only when `mint_config.mode == Permissioned`; the EAML omits this entry
-    /// in `FreelyTransferable` mode, so the runtime passes `None`. The handler
-    /// requires `Some` only on the Permissioned branch and validates the
-    /// account against `mint_config`'s trust anchors via `check_attestation`.
-    /// Index 8 (Permissioned only).
-    pub source_attestation: Option<UncheckedAccount<'info>>,
-
-    /// CHECK: SVS-11-shaped Attestation PDA for the destination-ATA owner.
-    /// Same semantics as `source_attestation`.
-    /// Index 9 (Permissioned only).
-    pub destination_attestation: Option<UncheckedAccount<'info>>,
-
-    /// CHECK: pool-policy PDA referenced by `mint_config.pool_policy`. The
-    /// current implementation does NOT enforce any threshold (jurisdiction /
-    /// investor_class / kyc_risk_tier) against this account — the
-    /// Permissioned arm only validates the trust-anchor binding via
-    /// `check_attestation`. The pool-policy extra is wired through the EAML
-    /// for forward compatibility with a future enforcement layer.
-    /// Index 10 (Permissioned only).
-    pub pool_policy: Option<UncheckedAccount<'info>>,
+    // Permissioned-mode extras are accessed via `ctx.remaining_accounts`:
+    //   [0] attestation_program  — fixed pubkey (CPI index 9)
+    //   [1] source_attestation   — cross-program PDA (CPI index 10)
+    //   [2] destination_attestation — cross-program PDA (CPI index 11)
+    //   [3] pool_policy          — fixed pubkey (CPI index 12)
 }
 
 /// Read the owner pubkey from a Token-2022 ATA's raw account data.
@@ -118,16 +119,12 @@ pub fn handler(ctx: Context<Execute>) -> Result<()> {
     );
 
     // Frozen check: PDA existence — non-zero lamports + non-empty data —
-    // marks the account as frozen. The runtime will pass the derived PDA
-    // address even when the account doesn't exist; in that case lamports == 0
-    // and data.len() == 0, so the booleans below stay false.
-    //
-    // NOTE (audit #7): the EAML derives these PDAs at `[b"frozen", owner]`
-    // under this program's ID, but compliance-hook does not yet ship a
-    // `freeze_account` / `unfreeze_account` instruction to populate that
-    // PDA space. So the freeze check is structurally present but
-    // operationally inert until those instructions are added — see
-    // docs/compliance-hook.md "Iteration 2 follow-ups".
+    // marks the account as frozen. The runtime passes the derived PDA
+    // address even when the account doesn't exist; in that case
+    // lamports == 0 and data.len() == 0, so the booleans below stay
+    // false. The `freeze_account` instruction creates the PDA at
+    // `[b"frozen", owner]` (gated by `SanctionsList.authority`), and
+    // `unfreeze_account` closes it.
     let src_frozen = ctx.accounts.source_frozen_check.lamports() > 0
         && ctx.accounts.source_frozen_check.data_len() > 0;
     let dst_frozen = ctx.accounts.destination_frozen_check.lamports() > 0
@@ -137,24 +134,36 @@ pub fn handler(ctx: Context<Execute>) -> Result<()> {
     match ctx.accounts.mint_config.mode {
         ComplianceMode::FreelyTransferable => Ok(()),
         ComplianceMode::Permissioned => {
-            // Token-2022 runtime resolves the EAML's 7 Permissioned extras and
-            // populates the three `Option<>` fields below. A `None` here means
-            // the EAML was misconfigured (wrong account count for the mode) —
-            // surface that as `AttestationNotFound` (6002) so the on-chain emit
-            // matches both the test scaffold expectations and the Helius
-            // webhook parser, which keys on the 6000-series ComplianceHookError
-            // codes. (`TransferHookError::IncorrectAccount` is in a different
-            // namespace and would not classify correctly downstream.)
-            let src_att = ctx
-                .accounts
-                .source_attestation
-                .as_ref()
-                .ok_or(ComplianceHookError::AttestationNotFound)?;
-            let dst_att = ctx
-                .accounts
-                .destination_attestation
-                .as_ref()
-                .ok_or(ComplianceHookError::AttestationNotFound)?;
+            // Token-2022 runtime resolves the EAML's 8 Permissioned extras
+            // and supplies the trailing 4 (attestation_program,
+            // source_attestation, destination_attestation, pool_policy) as
+            // `remaining_accounts`. Anchor 0.31's `Option<T>` binding does
+            // not silently bind None for absent trailing accounts in the
+            // FreelyTransferable case, so we keep the optional extras off
+            // the typed struct and read them positionally here. Exactly 4
+            // entries are expected — any other count means the EAML was
+            // misconfigured (`AttestationNotFound`, 6002, matching the
+            // Helius webhook parser's 6000-series convention).
+            const PERMISSIONED_REMAINING_COUNT: usize = 4;
+            require!(
+                ctx.remaining_accounts.len() == PERMISSIONED_REMAINING_COUNT,
+                ComplianceHookError::AttestationNotFound
+            );
+            // Index map (matches the EAML's order):
+            //   0 = attestation_program (fixed pubkey, CPI index 9)
+            //   1 = source_attestation
+            //   2 = destination_attestation
+            //   3 = pool_policy (unused — reserved for a future
+            //       policy-enforcement layer)
+            let attestation_program_acct = &ctx.remaining_accounts[0];
+            require_keys_eq!(
+                attestation_program_acct.key(),
+                ctx.accounts.mint_config.attestation_program,
+                ComplianceHookError::InvalidAttestationProgram
+            );
+
+            let src_att = &ctx.remaining_accounts[1];
+            let dst_att = &ctx.remaining_accounts[2];
 
             // Full identity-binding validation against the mint's trust
             // anchors. Each call enforces the FIVE checks documented on
@@ -163,19 +172,19 @@ pub fn handler(ctx: Context<Execute>) -> Result<()> {
             // satisfy the hook with a foreign-owner / wrong-subject /
             // wrong-issuer / wrong-type / mis-derived attestation.
             check_attestation(
-                &src_att.to_account_info(),
+                src_att,
                 &source_owner,
                 &ctx.accounts.mint_config,
                 "source",
             )?;
             check_attestation(
-                &dst_att.to_account_info(),
+                dst_att,
                 &dest_owner,
                 &ctx.accounts.mint_config,
                 "destination",
             )?;
 
-            // Future enforcement: pool_policy thresholds (jurisdiction /
+            // Optional policy layer: pool_policy thresholds (jurisdiction /
             // investor_class / kyc_risk_tier) against the loaded attestations.
             // The current handler leaves `pool_policy` wired but unread — the
             // EAML still resolves it so a future upgrade can flip the
