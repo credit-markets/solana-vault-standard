@@ -99,7 +99,7 @@ export interface ComplianceFrozenAccountState {
 
 /** Args for {@link ComplianceHook.initializeSanctionsList}. */
 export interface InitializeSanctionsListParams {
-  /** Address that gates all future updates (e.g. Squads multisig vault). */
+  /** Address that gates all future updates (typically a governance or multisig authority). */
   authority: PublicKey;
 }
 

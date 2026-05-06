@@ -4,7 +4,7 @@
 
 `nav-oracle` is a per-pool Net Asset Value (NAV) oracle program for credit-grade share pricing. It is the canonical price source for SVS-11 CreditVault pools when `oracle_source == 1`. An off-chain publisher (the protocol's NAV computation service) signs a canonical 133-byte payload with an Ed25519 keypair; the program verifies the signature on-chain by scanning the transaction for a matching `Ed25519Program` precompile instruction and then persists the new NAV into a per-pool `NavAccount` PDA.
 
-Replay protection is enforced through strict sequence monotonicity. Stale-NAV protection is delegated to consumers (SVS-11 enforces `max_nav_staleness_secs` per-vault). Publisher rotation is gated by an independent `key_rotation_authority` (typically the Protocol Guardian Squads multisig), so a compromised publisher key can be replaced without redeploying the program.
+Replay protection is enforced through strict sequence monotonicity. Stale-NAV protection is delegated to consumers (SVS-11 enforces `max_nav_staleness_secs` per-vault). Publisher rotation is gated by an independent `key_rotation_authority` (typically a governance or multisig authority), so a compromised publisher key can be replaced without redeploying the program.
 
 ## Architecture
 
@@ -70,7 +70,7 @@ PDA seeds: `[b"nav_oracle", pool_pubkey]`, where `pool_pubkey` is the SVS-11 Cre
 | `publisher` | `Pubkey` | 32 | Authorized signer for `update` |
 | `signature` | `[u8; 64]` | 64 | Ed25519 signature over canonical payload |
 | `loan_tape_merkle_root` | `[u8; 32]` | 32 | Merkle root over receivable rows |
-| `key_rotation_authority` | `Pubkey` | 32 | Squads multisig (Protocol Guardian) |
+| `key_rotation_authority` | `Pubkey` | 32 | Governance / multisig authority for publisher rotation |
 
 Size constant: `NavAccount::SPACE = 244 bytes` (`8 + 32 + 8 + 8 + 2 + 2 + 1 + 7 + 8 + 8 + 32 + 64 + 32 + 32`).
 
@@ -115,7 +115,7 @@ Creates the `NavAccount` PDA at `[b"nav_oracle", pool]` and stores the publisher
 | `pool` | read | no | CreditVault PDA used as the NAV PDA seed |
 | `nav_account` | mut | no | The PDA being initialized (`init`) |
 | `publisher` | read | no | Pubkey to install as the publisher |
-| `key_rotation_authority` | read | no | Squads multisig PDA |
+| `key_rotation_authority` | read | no | Governance / multisig authority's vault PDA |
 | `payer` | mut | yes | Funds rent for the new PDA |
 | `system_program` | read | no | System program |
 
@@ -156,7 +156,7 @@ Swaps the `publisher` pubkey. Old publisher is rejected on the next `update` (si
 |---------|------------|--------|-------------|
 | `pool` | read | no | PDA seed |
 | `nav_account` | mut | no | `has_one = key_rotation_authority` |
-| `key_rotation_authority` | read | yes | Must sign — Squads vault transaction |
+| `key_rotation_authority` | read | yes | Must sign — typically a governance/multisig vault transaction |
 | `new_publisher` | read | no | Pubkey to install |
 
 The Anchor `has_one` constraint enforces that the signer matches the on-chain `key_rotation_authority`, otherwise the call fails with `UnauthorizedRotation`.
@@ -220,7 +220,7 @@ pub struct NavUpdated {
 - **Ed25519 instruction scan** tolerates any number of preceding `ComputeBudget` instructions (priority-fee / unit-limit), so submitters can layer fee bumps without breaking signature verification. An earlier draft used `load_instruction_at_checked(0, ...)` which assumed Ed25519 was index 0 — that version is no longer in the tree, and the CI grep guard rejects any reintroduction of a loose `verify_ed25519_ix` helper.
 - **Strict ix-data matching** (`verify_ed25519_ix_strict`): the precompile must inline `pubkey`, `signature`, and `message` data with all three `instruction_index` fields equal to `0xFFFF`. This prevents an attacker from satisfying the verify by having the precompile point at someone else's instruction data (cross-instruction data referencing).
 - **Publisher ≠ signer of the update ix.** Authorization is purely cryptographic via the precompile. This means an arbitrary fee payer can submit `update`, and the publisher's keypair never needs SOL.
-- **Publisher rotation is multi-party.** `key_rotation_authority` is a Squads vault PDA — proposing, approving, and executing a rotation requires multisig consensus. A compromised publisher key can be replaced without protocol downtime.
+- **Publisher rotation is multi-party.** `key_rotation_authority` is typically a governance / multisig vault PDA — proposing, approving, and executing a rotation requires multi-party consensus. A compromised publisher key can be replaced without protocol downtime.
 - **Self-consistency check** acts as a sanity floor: a publisher who somehow signs nonsense (e.g. `nav_net > nav_gross`) cannot land it on-chain. The 1-bps tolerance accommodates integer rounding.
 - **Stale-NAV protection is the consumer's responsibility.** This program does not reject old timestamps on read; it only bounds future timestamps on write. SVS-11's `read_nav_oracle_price` enforces `max_nav_staleness_secs` from the CreditVault.
 
@@ -244,9 +244,9 @@ For a new pool migrating to nav-oracle, the order is:
 1. SVS-11 `initialize_pool` (creates CreditVault with `oracle_source == 0`, mock oracle still in use).
 2. nav-oracle `initialize` (creates `NavAccount` PDA, zero NAV).
 3. Publisher submits the first nav-oracle `update` (real NAV is now on-chain).
-4. SVS-11 `set_oracle_source(1)` — Protocol Guardian flips the CreditVault to read from `NavAccount`.
+4. SVS-11 `set_oracle_source(1)` — the configured governance authority flips the CreditVault to read from `NavAccount`.
 
-Step 4 is reversible: in an emergency the Protocol Guardian can flip back to `set_oracle_source(0)` while a publisher issue is investigated.
+Step 4 is reversible: in an emergency the governance authority can flip back to `set_oracle_source(0)` while a publisher issue is investigated.
 
 ## Constants
 

@@ -15,9 +15,9 @@ pub mod nav_oracle {
     use super::*;
 
     /// Initialize the per-pool `NavAccount` PDA at `[b"nav_oracle", pool]`.
-    /// Sets the publisher key + key_rotation_authority (Protocol Guardian
-    /// Squads vault). Initial NAV fields zeroed; first `update` call sets
-    /// real values.
+    /// Sets the publisher key + `key_rotation_authority` (typically a
+    /// governance or multisig authority). Initial NAV fields zeroed; first
+    /// `update` call sets real values.
     pub fn initialize(ctx: Context<InitializeNavAccount>) -> Result<()> {
         instructions::initialize::handler(ctx)
     }
@@ -31,9 +31,9 @@ pub mod nav_oracle {
     }
 
     /// Rotate the publisher pubkey on a NavAccount. Gated by
-    /// `key_rotation_authority` (the Protocol Guardian Squads multisig
-    /// vault). Old publisher is rejected on next `update` once rotation
-    /// completes.
+    /// `key_rotation_authority` (typically a governance or multisig
+    /// authority). Old publisher is rejected on next `update` once
+    /// rotation completes.
     pub fn rotate_publisher(ctx: Context<RotatePublisher>) -> Result<()> {
         instructions::rotate_publisher::handler(ctx)
     }

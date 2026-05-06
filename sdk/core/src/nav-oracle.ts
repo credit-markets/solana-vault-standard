@@ -432,8 +432,8 @@ export class NavOracle {
   /**
    * Rotate the publisher pubkey on a NavAccount. Caller-provided
    * `rotationAuthority` MUST be the signer that controls the
-   * `key_rotation_authority` recorded in the account (typically the
-   * Protocol Guardian Squads multisig vault PDA).
+   * `key_rotation_authority` recorded in the account (typically a
+   * governance or multisig authority's vault PDA).
    */
   static async rotatePublisher(
     program: Program,

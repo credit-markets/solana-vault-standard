@@ -50,7 +50,8 @@ pub struct NavAccount {
     /// Auditors can request individual rows + merkle proof from the backend.
     pub loan_tape_merkle_root: [u8; 32],
 
-    /// Squads multisig PDA controlling publisher rotations (Protocol Guardian multisig).
+    /// Authority that controls publisher rotations (typically a
+    /// governance or multisig authority).
     pub key_rotation_authority: Pubkey,
 }
 

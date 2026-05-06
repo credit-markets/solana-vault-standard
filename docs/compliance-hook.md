@@ -60,7 +60,7 @@ Seeds: `[b"sanctions_list"]`
 | Field | Type | Size (bytes) | Description |
 |-------|------|--------------|-------------|
 | (discriminator) | — | 8 | Anchor account discriminator |
-| `authority` | `Pubkey` | 32 | Squads multisig PDA controlling updates |
+| `authority` | `Pubkey` | 32 | Authority that controls updates (typically a governance or multisig authority) |
 | `version` | `u64` | 8 | Bumped on every successful update |
 | `updated_at` | `i64` | 8 | Unix timestamp of last update |
 | `addresses` | `Vec<Pubkey>` | 4 + 32 × `MAX_ADDRESSES` | Sanctioned wallets (length-prefixed) |
@@ -195,7 +195,7 @@ See [ERRORS.md](ERRORS.md) for cross-program error code allocation.
 
 ### Authority Gating
 
-`SanctionsList.authority` is set at `initialize_sanctions_list` and is the only signer accepted by `update_sanctions_list` (enforced by Anchor's `has_one = authority @ UnauthorizedAuthority` constraint). Production deployments rotate this pubkey to the Ops Guardian Squads multisig vault.
+`SanctionsList.authority` is set at `initialize_sanctions_list` and is the only signer accepted by `update_sanctions_list` (enforced by Anchor's `has_one = authority @ UnauthorizedAuthority` constraint). Production deployments rotate this pubkey to their configured governance authority (e.g. a multisig vault).
 
 ### Mint-Authority Validation
 

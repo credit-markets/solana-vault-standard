@@ -15,7 +15,9 @@ pub struct RotatePublisher<'info> {
     )]
     pub nav_account: Account<'info, NavAccount>,
 
-    /// Must sign — Squads multisig PDA proxies via vault transaction.
+    /// Must sign. Production deployments typically wire this to a
+    /// governance or multisig authority that proxies via a vault
+    /// transaction.
     pub key_rotation_authority: Signer<'info>,
 
     /// CHECK: new publisher pubkey to install.

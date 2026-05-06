@@ -20,7 +20,8 @@ pub struct InitializeNavAccount<'info> {
     /// CHECK: publisher pubkey to be stored.
     pub publisher: UncheckedAccount<'info>,
 
-    /// CHECK: Squads multisig PDA controlling publisher rotations.
+    /// CHECK: authority that controls publisher rotations (typically a
+    /// governance or multisig authority).
     pub key_rotation_authority: UncheckedAccount<'info>,
 
     #[account(mut)]

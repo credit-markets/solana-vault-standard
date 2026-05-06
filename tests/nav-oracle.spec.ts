@@ -16,7 +16,7 @@ describe("nav-oracle: update", () => {
   const program = anchor.workspace.NavOracle as Program<NavOracle>;
 
   const publisher = Keypair.generate();
-  const rotationAuthority = Keypair.generate(); // stand-in for Protocol Guardian
+  const rotationAuthority = Keypair.generate(); // stand-in for the governance/multisig rotation authority
   const pool = Keypair.generate(); // stand-in for SVS-11 CreditVault PDA
   let navPda: PublicKey;
 
