@@ -42,8 +42,13 @@ describe("compliance-hook: update_sanctions_list", () => {
   anchor.setProvider(provider);
   const program = anchor.workspace.ComplianceHook as Program<ComplianceHook>;
 
-  const authority = Keypair.generate();
+  // Use provider wallet as the SanctionsList authority. svs-11.ts runs
+  // before this suite in anchor's test order and initializes the
+  // singleton SanctionsList with the same authority — so this suite's
+  // init is idempotent (skips on "already in use") and the
+  // authority-gated paths exercised below all sign with the same key.
   const nonAuthority = Keypair.generate();
+  const provWallet = (provider.wallet as anchor.Wallet).payer;
   let sanctionsListPda: PublicKey;
 
   before(async () => {
@@ -52,37 +57,44 @@ describe("compliance-hook: update_sanctions_list", () => {
       program.programId,
     );
 
-    await provider.connection.requestAirdrop(authority.publicKey, 1e9);
     await provider.connection.requestAirdrop(nonAuthority.publicKey, 1e9);
-    // wait for airdrop confirmation
     await new Promise((r) => setTimeout(r, 1500));
 
-    await program.methods
-      .initializeSanctionsList()
-      .accounts({
-        sanctionsList: sanctionsListPda,
-        authority: authority.publicKey,
-        payer: provider.wallet.publicKey,
-      })
-      .rpc();
+    try {
+      await program.methods
+        .initializeSanctionsList()
+        .accounts({
+          sanctionsList: sanctionsListPda,
+          authority: provider.wallet.publicKey,
+          payer: provider.wallet.publicKey,
+        })
+        .rpc();
+    } catch (_err) {
+      // SanctionsList may already exist if svs-11.ts (which runs first
+      // in the anchor test order) initialized it. Idempotent skip.
+    }
   });
 
   it("authority can add an address", async () => {
     const sanctioned = Keypair.generate().publicKey;
+    // Capture the version BEFORE the add — svs-11.ts may have already
+    // bumped it via prior test runs / re-init flow, so we assert the
+    // delta rather than the absolute value.
+    const before = await program.account.sanctionsList.fetch(sanctionsListPda);
     await program.methods
       .updateSanctionsList([sanctioned], [])
       .accounts({
         sanctionsList: sanctionsListPda,
-        authority: authority.publicKey,
+        authority: provider.wallet.publicKey,
       })
-      .signers([authority])
+      .signers([provWallet])
       .rpc();
 
     const list = await program.account.sanctionsList.fetch(sanctionsListPda);
     expect(list.addresses.map((a) => a.toBase58())).to.include(
       sanctioned.toBase58(),
     );
-    expect(list.version.toNumber()).to.equal(1);
+    expect(list.version.toNumber()).to.equal(before.version.toNumber() + 1);
   });
 
   it("non-authority is rejected", async () => {
@@ -113,13 +125,13 @@ describe("compliance-hook: update_sanctions_list", () => {
       .freezeAccount()
       .accounts({
         sanctionsList: sanctionsListPda,
-        authority: authority.publicKey,
+        authority: provider.wallet.publicKey,
         ownerToFreeze: owner,
         frozenAccount,
         payer: provider.wallet.publicKey,
         systemProgram: SystemProgram.programId,
       })
-      .signers([authority])
+      .signers([provWallet])
       .rpc();
 
     const frozen = await program.account.frozenAccount.fetch(frozenAccount);
@@ -129,12 +141,12 @@ describe("compliance-hook: update_sanctions_list", () => {
       .unfreezeAccount()
       .accounts({
         sanctionsList: sanctionsListPda,
-        authority: authority.publicKey,
+        authority: provider.wallet.publicKey,
         ownerToUnfreeze: owner,
         frozenAccount,
         rentRecipient: provider.wallet.publicKey,
       })
-      .signers([authority])
+      .signers([provWallet])
       .rpc();
 
     const closed = await provider.connection.getAccountInfo(frozenAccount);

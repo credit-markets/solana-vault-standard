@@ -35,6 +35,7 @@ import {
   getClaimableTokensAddress,
   getCreditFrozenAccountAddress,
 } from "../sdk/core/src/credit-vault-pda";
+import { resolveHookExtras } from "./helpers/hook-mint";
 
 const ATTESTATION_PROGRAM_ID = new PublicKey(
   "GTTMWDHTZibyEpqNRr33RnBhgms262U6qHaGrjoHqEXg",
@@ -239,6 +240,54 @@ describe("svs-11 (Credit Markets Vault)", () => {
     await provider.sendAndConfirm(tx, []);
   }
 
+  // Hook extras for the cPOOL `transfer_checked` invoked from
+  // request_redeem (source = investor, destination = vault PDA — the
+  // owner of redemption_escrow). Computed per-call because the
+  // source-side attestation PDA depends on the investor pubkey.
+  // The result is appended to the request_redeem ix via
+  // `.remainingAccounts(...)` so svs-11's CPI extension via
+  // `add_extra_accounts_for_execute_cpi` can reach the hook program +
+  // EAML PDA + resolved EAML extras when invoking Token-2022.
+  const requestRedeemHookExtras = (investorKey: PublicKey) => {
+    const [poolPolicyPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("pool_policy_test"), vault.toBuffer()],
+      program.programId,
+    );
+    return resolveHookExtras({
+      complianceHookProgramId: COMPLIANCE_HOOK_PROGRAM_ID,
+      mint: sharesMint,
+      sourceOwner: investorKey,
+      destinationOwner: vault,
+      permissioned: true,
+      attestationProgram: attestationProgramId,
+      attestationIssuer: attester.publicKey,
+      requiredAttestationType: 0,
+      poolPolicy: poolPolicyPda,
+    });
+  };
+
+  // Hook extras for cancel_redeem's cPOOL transfer (source = vault,
+  // destination = investor — opposite direction of request_redeem).
+  // The source-side attestation PDA is now the vault's system
+  // attestation, and destination-side is the investor's.
+  const cancelRedeemHookExtras = (investorKey: PublicKey) => {
+    const [poolPolicyPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("pool_policy_test"), vault.toBuffer()],
+      program.programId,
+    );
+    return resolveHookExtras({
+      complianceHookProgramId: COMPLIANCE_HOOK_PROGRAM_ID,
+      mint: sharesMint,
+      sourceOwner: vault,
+      destinationOwner: investorKey,
+      permissioned: true,
+      attestationProgram: attestationProgramId,
+      attestationIssuer: attester.publicKey,
+      requiredAttestationType: 0,
+      poolPolicy: poolPolicyPda,
+    });
+  };
+
   before(async () => {
     manager = Keypair.generate();
     investor = Keypair.generate();
@@ -412,6 +461,100 @@ describe("svs-11 (Credit Markets Vault)", () => {
         .rpc();
 
       await publishNav();
+
+      // Initialize the singleton compliance-hook SanctionsList if it
+      // doesn't already exist. svs-11.ts runs before
+      // compliance-hook.spec.ts in the anchor test order, so this is
+      // the first place that needs the SanctionsList PDA. Idempotent
+      // against re-runs (and against compliance-hook.spec.ts's own
+      // setup) by tolerating "already in use".
+      try {
+        const [sanctionsListPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("sanctions_list")],
+          COMPLIANCE_HOOK_PROGRAM_ID,
+        );
+        const complianceHookIdl = require("../target/idl/compliance_hook.json");
+        const complianceHookProg = new anchor.Program(
+          complianceHookIdl,
+          provider,
+        );
+        await complianceHookProg.methods
+          .initializeSanctionsList()
+          .accountsPartial({
+            sanctionsList: sanctionsListPda,
+            authority: payer.publicKey,
+            payer: payer.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+      } catch (_err) {
+        // already initialized — fine
+      }
+
+      // Bootstrap compliance-hook PDAs for the cPOOL shares mint.
+      // This is the operator-runbook step that initializes
+      // MintConfig + EAML on cPOOL — without it, every cPOOL transfer
+      // fails because Token-2022 invokes the hook (which is bound by
+      // initialize_pool) but the hook's MintConfig/EAML PDAs don't
+      // exist. Permissioned mode requires non-default trust anchors.
+      const [poolPolicyPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("pool_policy_test"), vault.toBuffer()],
+        program.programId,
+      );
+      const [mintConfigPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("mint_config"), sharesMint.toBuffer()],
+        COMPLIANCE_HOOK_PROGRAM_ID,
+      );
+      const [eamlPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("extra-account-metas"), sharesMint.toBuffer()],
+        COMPLIANCE_HOOK_PROGRAM_ID,
+      );
+      await program.methods
+        .bootstrapSharesCompliance({
+          mode: { permissioned: {} },
+          poolPolicy: poolPolicyPda,
+          attestationProgram: attestationProgramId,
+          attestationIssuer: attester.publicKey,
+          requiredAttestationType: 0,
+        })
+        .accountsPartial({
+          authority: payer.publicKey,
+          vault,
+          sharesMint,
+          mintConfig: mintConfigPda,
+          extraAccountMetaList: eamlPda,
+          complianceHookProgram: COMPLIANCE_HOOK_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      // Issue infrastructure attestation for the vault PDA. Permissioned
+      // hooks validate BOTH transfer owners on every cPOOL transfer;
+      // request_redeem moves cPOOL from investor → redemption_escrow,
+      // and redemption_escrow.owner == vault. Without a vault
+      // attestation, the destination-side check rejects with
+      // AttestationNotFound. mock-sas accepts off-curve PDAs as
+      // subjects, mirroring the wrapper-PDA system attestation pattern
+      // in the deRWA flow.
+      const [vaultAttestation] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("attestation"),
+          vault.toBuffer(),
+          attester.publicKey.toBuffer(),
+          Buffer.from([0]),
+        ],
+        attestationProgramId,
+      );
+      await attestationMockProgram.methods
+        .createAttestation(attester.publicKey, 0, [66, 82], FAR_FUTURE_EXPIRY)
+        .accountsPartial({
+          authority: payer.publicKey,
+          attestation: vaultAttestation,
+          subject: vault,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
 
       const vaultAccount = await program.account.creditVault.fetch(vault);
       expect(vaultAccount.authority.toBase58()).to.equal(
@@ -1142,6 +1285,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
         })
+        .remainingAccounts(requestRedeemHookExtras(investor.publicKey))
         .signers([investor])
         .rpc();
 
@@ -1317,6 +1461,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
         })
+        .remainingAccounts(requestRedeemHookExtras(investor.publicKey))
         .signers([investor])
         .rpc();
     });
@@ -1334,6 +1479,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts(cancelRedeemHookExtras(investor.publicKey))
         .signers([investor])
         .rpc();
 
@@ -2297,6 +2443,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
         })
+        .remainingAccounts(requestRedeemHookExtras(liqInvestor.publicKey))
         .signers([liqInvestor])
         .rpc();
 
@@ -2611,6 +2758,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
         })
+        .remainingAccounts(requestRedeemHookExtras(frozenInvestor.publicKey))
         .signers([frozenInvestor])
         .rpc();
 
