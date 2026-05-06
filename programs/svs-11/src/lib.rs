@@ -27,6 +27,23 @@ pub mod svs_11 {
         instructions::initialize_pool::handler(ctx, vault_id, minimum_investment, max_staleness)
     }
 
+    /// Bootstrap the compliance-hook PDAs (`MintConfig` + `ExtraAccountMetaList`)
+    /// for a CreditVault's cPOOL shares mint. CPIs into compliance-hook
+    /// with `vault_seeds` so the vault PDA — which is the cPOOL mint
+    /// authority — satisfies compliance-hook's `Signer == mint_authority`
+    /// constraint. Must be called once per pool, after `initialize_pool`,
+    /// before any cPOOL transfer can succeed (Token-2022 invokes the hook
+    /// on every transfer, and the hook handler reads MintConfig + EAML).
+    /// See `instructions/bootstrap_shares_compliance.rs` for the full
+    /// architectural rationale (including a correction of the stale
+    /// "signer privilege escalated" comment in `initialize_pool.rs`).
+    pub fn bootstrap_shares_compliance(
+        ctx: Context<BootstrapSharesCompliance>,
+        args: BootstrapSharesComplianceArgs,
+    ) -> Result<()> {
+        instructions::bootstrap_shares_compliance::handler(ctx, args)
+    }
+
     /// Open the investment window for deposit and redeem requests.
     pub fn open_investment_window(ctx: Context<InvestmentWindow>) -> Result<()> {
         instructions::investment_window::open_handler(ctx)
@@ -106,7 +123,9 @@ pub mod svs_11 {
     }
 
     /// Investor cancels their pending redemption request.
-    pub fn cancel_redeem(ctx: Context<CancelRedeem>) -> Result<()> {
+    pub fn cancel_redeem<'info>(
+        ctx: Context<'_, '_, '_, 'info, CancelRedeem<'info>>,
+    ) -> Result<()> {
         instructions::cancel_redeem::handler(ctx)
     }
 

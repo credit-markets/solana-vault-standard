@@ -212,25 +212,30 @@ pub fn handler(
     // CROSS-PROGRAM INVARIANT: the cPOOL mint now points at
     // COMPLIANCE_HOOK_PROGRAM_ID, but the dependent PDAs that
     // compliance-hook expects (per-mint `MintConfig` and per-mint
-    // `ExtraAccountMetaList`) are NOT initialized here. They MUST be
-    // initialized in a follow-up tx by the deployment runbook — the
-    // runbook calls compliance-hook directly so signer-privilege
-    // escalation and PDA-derivation-program-mismatch problems do not
-    // arise.
+    // `ExtraAccountMetaList`) are initialized by a SEPARATE follow-up
+    // svs-11 instruction `bootstrap_shares_compliance`, which CPIs
+    // into compliance-hook with `vault_seeds` so the vault PDA — which
+    // becomes the cPOOL mint authority below — satisfies
+    // compliance-hook's `Signer == mint_authority` constraint via
+    // Anchor's `invoke_signed` flow.
     //
-    // ARCHITECTURE NOTE: Earlier drafts put MintConfig + EAML init
-    // inline here via either CPI to compliance-hook or direct
-    // system_program::create_account calls from svs-11. Both fail:
-    //   - CPI into a handler that uses Anchor `init` on a cross-program
-    //     PDA triggers "signer privilege escalated" because the PDA
-    //     must be marked signer in the inner ix accounts list, but
-    //     svs-11 can't sign for it (different program ID).
-    //   - Direct create_account from svs-11 with a PDA owned by
-    //     compliance-hook fails because invoke_signed seeds derive
-    //     against svs-11's program ID, not the owning program's.
-    // Compliance-hook's own ix is the only path. The runtime guard in
-    // `initialize_extra_account_meta_list` — "fail loud if not called
-    // for cPOOL" — catches the case where the runbook step is skipped.
+    // The split is intentional: keeping the compliance-hook bootstrap
+    // out of `initialize_pool` lets `bootstrap_shares_compliance` carry
+    // the per-mint trust anchors (attestation_program /
+    // attestation_issuer / required_attestation_type) without
+    // bloating this struct's accounts list, and it lets operators
+    // bind cPOOL in `FreelyTransferable` mode initially and flip to
+    // `Permissioned` later by re-init'ing the EAML — without re-deploying
+    // the pool itself.
+    //
+    // (The earlier draft of this comment claimed cross-program PDA
+    // CPI fails with "signer privilege escalated." That claim was
+    // wrong: anchor-syn 0.31's `Constraints::is_signer()` only marks
+    // explicit `signer` constraints — init'd PDAs emit `is_signer:
+    // false` in `to_account_metas`, and `system_program::create_account`
+    // signs internally via `CpiContext::with_signer(&[seeds_with_nonce])`
+    // inside the owning program. Empirically validated by
+    // `bootstrap_shares_compliance` + `tests/svs-11.ts`.)
     invoke(
         &initialize_transfer_hook(
             &ctx.accounts.token_2022_program.key(),
