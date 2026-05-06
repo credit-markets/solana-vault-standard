@@ -153,7 +153,7 @@ pub enum AccessMode {
 
 | Instruction | Signer | Description |
 |-------------|--------|-------------|
-| `request_redeem` | `investor` | Lock shares in redemption escrow (requires KYC attestation, open window) |
+| `request_redeem` | `investor` | Lock shares in redemption escrow (requires KYC attestation; intentionally does not require an open investment window) |
 | `approve_redeem` | `manager` | Burn shares, transfer assets to claimable account via oracle price |
 | `claim_redeem` | `investor` | Withdraw claimable assets to own token account |
 | `cancel_redeem` | `investor` | Cancel own pending request, reclaim locked shares |

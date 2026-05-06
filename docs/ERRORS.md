@@ -185,6 +185,12 @@ These errors live in the SVS-11 `VaultError` enum and back the NavOracle adapter
 | 6009 | `InvalidMintAccount` | Mint account does not deserialize as a valid Token-2022 mint | `initialize_mint_config` with non-Token-2022 mint |
 | 6010 | `MissingPoolPolicyForPermissioned` | Permissioned mode requires a pool_policy | `initialize_mint_config` with `Permissioned` mode and no policy |
 | 6011 | `PoolPolicySetOnFreelyTransferable` | FreelyTransferable mode rejects a pool_policy (must be None) | `initialize_mint_config` with `FreelyTransferable` mode and a policy supplied |
+| 6012 | `InvalidAttestationProgram` | Attestation account is not owned by the mint-configured attestation program | Permissioned transfer with wrong attestation owner |
+| 6013 | `InvalidAttestationSubject` | Attestation subject does not match the source/destination ATA owner | Permissioned transfer with foreign attestation |
+| 6014 | `InvalidAttestationIssuer` | Attestation issuer does not match the mint-configured issuer | Permissioned transfer with wrong issuer |
+| 6015 | `InvalidAttestationType` | Attestation type does not match the mint-required type | Permissioned transfer with wrong attestation tier/type |
+| 6016 | `InvalidAttestationPda` | Attestation account address does not match canonical PDA derivation | Permissioned transfer with misderived attestation PDA |
+| 6017 | `InvalidAttestationConfig` | Permissioned trust anchors are missing/default | Permissioned MintConfig with unset attestation program or issuer |
 
 ---
 
@@ -198,6 +204,12 @@ These errors live in the SVS-11 `VaultError` enum and back the NavOracle adapter
 | 8001 | `AttestationRequired` | unwrap requires a valid attestation on the destination wallet | `unwrap` without a valid (non-revoked, non-expired) attestation for the cPOOL recipient |
 | 8002 | `InsufficientLockedSupply` | locked supply mismatch: cannot unwrap more than locked | `unwrap` would push `locked_supply` negative |
 | 8003 | `MintMismatch` | permissioned mint does not match wrapper config | `wrap` / `unwrap` with cPOOL mint != `WrapperConfig.permissioned_mint` |
+| 8004 | `InvalidAttestationProgram` | attestation account owner does not match the wrapper-configured attestation program | `unwrap` with an attestation from the wrong program |
+| 8005 | `InvalidAttestationSubject` | attestation subject does not match the unwrap destination wallet | `unwrap` with another wallet's attestation |
+| 8006 | `InvalidAttestationIssuer` | attestation issuer does not match the wrapper-configured issuer | `unwrap` with wrong issuer |
+| 8007 | `InvalidAttestationType` | attestation type does not match the wrapper-required type | `unwrap` with wrong attestation tier/type |
+| 8008 | `InvalidAttestationPda` | attestation account address does not match canonical PDA derivation | `unwrap` with a misderived attestation PDA |
+| 8009 | `InvalidAttestationConfig` | wrapper trust anchors are missing/default | `initialize` with unset attestation program or issuer |
 
 ---
 
@@ -322,6 +334,6 @@ Error: AnchorError: Vault is paused. Error Code: VaultPaused.
 | svs-locks | 6120-6129 | Lock module errors |
 | svs-access | 6130-6139 | Access control errors |
 | svs-rewards | 6140-6149 | Rewards module errors |
-| compliance-hook | 6000-6011 | TransferHook compliance errors (Token-2022) |
+| compliance-hook | 6000-6017 | TransferHook compliance errors (Token-2022) |
 | nav-oracle | 7000-7005 | Per-pool NAV oracle errors |
-| derwa-wrapper | 8000-8003 | cPOOL ↔ dePOOL wrap errors |
+| derwa-wrapper | 8000-8009 | cPOOL ↔ dePOOL wrap errors |

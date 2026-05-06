@@ -1112,10 +1112,17 @@ solana-vault compliance update-sanctions-list \
   --add <pk1>,<pk2> \
   --remove <pk3>
 
-# Create a per-mint config (Permissioned mode requires --pool-policy)
+# Freeze / unfreeze an owner globally across hook-bound mints
+solana-vault compliance freeze-account --owner <pubkey>
+solana-vault compliance unfreeze-account --owner <pubkey> [--rent-recipient <pubkey>]
+
+# Create a per-mint config (Permissioned mode requires --pool-policy and trust anchors)
 solana-vault compliance init-mint-config <mint> \
   --mode <freely-transferable|permissioned> \
-  [--pool-policy <pubkey>]
+  [--pool-policy <pubkey>] \
+  [--attestation-program <pubkey>] \
+  [--attestation-issuer <pubkey>] \
+  [--required-attestation-type <u8>]
 
 # Provision the Token-2022 ExtraAccountMetaList PDA for a mint
 solana-vault compliance init-eaml <mint>
@@ -1149,11 +1156,16 @@ solana-vault derwa init <pool> \
   --permissioned-mint <pubkey> \
   --derwa-mint <pubkey>
 
-# Wrap cPOOL into dePOOL 1:1 (caller is the cPOOL holder)
-solana-vault derwa wrap --amount <u64>
+# Wrap cPOOL into dePOOL 1:1 (caller is the cPOOL holder).
+# If cPOOL has an active Token-2022 TransferHook, pass the hook extras
+# resolved from the cPOOL mint's EAML.
+solana-vault derwa wrap --amount <u64> \
+  --remaining-accounts <comma-separated-pubkeys>
 
 # Unwrap dePOOL back to cPOOL (attestation-gated)
-solana-vault derwa unwrap --amount <u64> --attestation <pubkey>
+solana-vault derwa unwrap --amount <u64> \
+  --attestation <pubkey> \
+  --remaining-accounts <comma-separated-pubkeys>
 ```
 
 ### `set-oracle-source` (SVS-11)

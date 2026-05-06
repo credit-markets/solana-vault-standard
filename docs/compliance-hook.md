@@ -78,7 +78,7 @@ Seeds: `[b"mint_config", mint]`
 | `mode` | `ComplianceMode` | 1 | `0` = FreelyTransferable, `1` = Permissioned |
 | `pool_policy` | `Option<Pubkey>` | 1 + 32 | Pool-policy PDA (Permissioned only); 1-byte tag + 32-byte pubkey reserved fixed-size |
 
-Total `SPACE = 8 + 32 + 1 + 1 + 32 = 74` bytes. The `Option<Pubkey>` reserves the max-case 33 bytes so layout offsets are stable; the `pool_policy` Pubkey lives at byte offset `8 + 32 + 1 + 1 = 42` inside the account. The `ExtraAccountMetaList` builder reads from that offset.
+Total `SPACE = 139` bytes: discriminator (8), mint (32), mode (1), max-case `Option<Pubkey>` for `pool_policy` (33), attestation program (32), attestation issuer (32), and required attestation type (1). The EAML builder reads `pool_policy` from typed `MintConfig` state and stores it as a fixed-pubkey extra; it reads `attestation_issuer` at byte offset `106` and `required_attestation_type` at byte offset `138` to derive source/destination attestation PDAs.
 
 ### ExtraAccountMetaList (per-mint PDA)
 
@@ -86,7 +86,7 @@ Seeds: `[b"extra-account-metas", mint]` (the seed literal MUST be hyphen-separat
 
 This is Token-2022's standard `ExtraAccountMetaList` account (defined by `spl-tlv-account-resolution`). The program writes the layout the runtime uses to resolve the extras `execute` consumes beyond the canonical 4 (`source_ata`, `mint`, `destination_ata`, `source_owner`).
 
-Capacity is sized for the max case (`Permissioned` mode, 7 extras) regardless of mode at init time, so a future mode flip does not require realloc. `FreelyTransferable` mode writes 4 entries and leaves the remainder unused. Space is computed via `ExtraAccountMetaList::size_of(7)`.
+Capacity is sized for the max case (`Permissioned` mode, 8 extras) regardless of mode at init time, so a future mode flip does not require realloc. `FreelyTransferable` mode writes 4 entries and leaves the remainder unused. Space is computed via `ExtraAccountMetaList::size_of(8)`.
 
 ## Compliance Modes
 
@@ -100,9 +100,9 @@ EAML extras: 4 entries (`MintConfig`, `SanctionsList`, source-frozen-check, dest
 
 Behavior: same sanctions + frozen-account checks as `FreelyTransferable`, plus a verification that BOTH the source-ATA owner and destination-ATA owner hold non-revoked, non-expired SVS-11 `Attestation` PDAs. Suitable for cPOOL-style closed institutional shares where every holder must be KYC'd.
 
-EAML extras: 7 entries (the 4 `FreelyTransferable` extras plus source-attestation, destination-attestation, pool-policy).
+EAML extras: 8 entries (the 4 `FreelyTransferable` extras plus attestation-program, source-attestation, destination-attestation, pool-policy). Source/destination attestations are resolved as cross-program PDAs under the configured attestation program.
 
-`pool_policy` is wired through the EAML for forward compatibility: the current `execute` handler does not enforce jurisdiction / investor-class / KYC-tier thresholds against it. The slot is reserved for a follow-up enforcement layer, and surfacing it in the EAML now means the future upgrade does not require re-init.
+`pool_policy` is wired through the EAML for forward compatibility: the current `execute` handler does not enforce jurisdiction / investor-class / KYC-tier thresholds against it. The slot is reserved for an optional policy-enforcement layer, and surfacing it in the EAML now means that layer can be enabled without re-initializing EAML accounts.
 
 ## Instructions
 
@@ -112,6 +112,8 @@ EAML extras: 7 entries (the 4 `FreelyTransferable` extras plus source-attestatio
 | `initialize_mint_config` | `payer`, `mint_authority` | Create the per-mint `MintConfig` PDA binding mode + optional pool policy |
 | `initialize_extra_account_meta_list` | `payer`, `mint_authority` | Create the per-mint `ExtraAccountMetaList` PDA at the Token-2022 canonical seed |
 | `update_sanctions_list` | `authority` | Apply additions/removals to the sanctions list, bump version, emit event |
+| `freeze_account` | `SanctionsList.authority` | Create `[b"frozen", owner]`, blocking owner as source or destination |
+| `unfreeze_account` | `SanctionsList.authority` | Close `[b"frozen", owner]`, allowing transfers again |
 | `execute` | (Token-2022 program) | TransferHook entry point; invoked indirectly on every transfer of a bound mint |
 
 `execute` is never called by users directly. The Token-2022 program builds the inner instruction during `transfer` / `transfer_checked` processing and invokes the hook with the canonical 4 accounts followed by the EAML-resolved extras.
@@ -128,6 +130,9 @@ No parameters. The signer's `authority` account (an `UncheckedAccount`) is store
 pub struct InitializeMintConfigArgs {
     pub mode: ComplianceMode,           // FreelyTransferable | Permissioned
     pub pool_policy: Option<Pubkey>,    // None for FreelyTransferable; Some for Permissioned
+    pub attestation_program: Pubkey,    // Required for Permissioned
+    pub attestation_issuer: Pubkey,     // Required for Permissioned
+    pub required_attestation_type: u8,
 }
 ```
 
@@ -136,11 +141,11 @@ Consistency invariants enforced in the handler:
 - `mode = Permissioned` AND `pool_policy = None` → `MissingPoolPolicyForPermissioned`
 - `mode = FreelyTransferable` AND `pool_policy = Some(_)` → `PoolPolicySetOnFreelyTransferable`
 
-The handler also unpacks the bound mint's `mint_authority` (via `spl_token_2022::state::Mint::unpack` — works for both legacy SPL Token and Token-2022 mints because the base layout is identical) and verifies the `mint_authority` signer matches.
+The handler requires `mint.owner == spl_token_2022::id()`, unpacks the bound mint's `mint_authority`, and verifies the `mint_authority` signer matches. Permissioned mode also rejects default `attestation_program` / `attestation_issuer` trust anchors.
 
 ### `initialize_extra_account_meta_list`
 
-No parameters. The handler reads `mint_config.mode` (typed `Account<MintConfig>` constrained to canonical seeds) and writes 4 or 7 `ExtraAccountMeta` entries depending on the mode.
+No parameters. The handler reads `mint_config.mode` (typed `Account<MintConfig>` constrained to canonical seeds) and writes 4 or 8 `ExtraAccountMeta` entries depending on the mode.
 
 ### `update_sanctions_list`
 
@@ -164,11 +169,17 @@ Removals apply first, then additions (already-present entries are skipped). The 
 | 6004 | `AttestationExpired` | Destination attestation has expired |
 | 6005 | `SanctionsListFull` | Sanctions list update would exceed max capacity (256) |
 | 6006 | `UnauthorizedAuthority` | Update authority does not match `SanctionsList.authority` (or `mint_authority` mismatch on mint binding) |
-| 6007 | `InvestorClassTooLow` | Pool policy requires higher investor class than attestation provides (reserved for a follow-up enforcement layer) |
-| 6008 | `JurisdictionNotPermitted` | Pool policy does not permit this jurisdiction (reserved for a follow-up enforcement layer) |
+| 6007 | `InvestorClassTooLow` | Pool policy requires higher investor class than attestation provides (reserved for optional policy enforcement) |
+| 6008 | `JurisdictionNotPermitted` | Pool policy does not permit this jurisdiction (reserved for optional policy enforcement) |
 | 6009 | `InvalidMintAccount` | Mint account does not deserialize as a valid Token-2022 mint |
 | 6010 | `MissingPoolPolicyForPermissioned` | `Permissioned` mode requires a `pool_policy` |
 | 6011 | `PoolPolicySetOnFreelyTransferable` | `FreelyTransferable` mode rejects a `pool_policy` (must be `None`) |
+| 6012 | `InvalidAttestationProgram` | Attestation account owner does not match the configured attestation program |
+| 6013 | `InvalidAttestationSubject` | Attestation subject does not match the source/destination ATA owner |
+| 6014 | `InvalidAttestationIssuer` | Attestation issuer does not match the configured issuer |
+| 6015 | `InvalidAttestationType` | Attestation type does not match the configured required type |
+| 6016 | `InvalidAttestationPda` | Attestation address does not match canonical PDA derivation |
+| 6017 | `InvalidAttestationConfig` | Permissioned trust anchors are missing/default |
 
 See [ERRORS.md](ERRORS.md) for cross-program error code allocation.
 
@@ -188,7 +199,7 @@ See [ERRORS.md](ERRORS.md) for cross-program error code allocation.
 
 ### Mint-Authority Validation
 
-`initialize_mint_config` requires the `mint_authority` signer to match the bound mint's `Mint::mint_authority` field (read via `spl_token_2022::state::Mint::unpack`). Fixed-supply mints (where `mint_authority = COption::None`) are rejected with `UnauthorizedAuthority` since no entity can authorize the binding. `initialize_extra_account_meta_list` also requires `mint_authority` to sign — a stranger cannot init a mint's EAML.
+`initialize_mint_config` and `initialize_extra_account_meta_list` both require the `mint_authority` signer to match the bound mint's `Mint::mint_authority` field (read via `spl_token_2022::state::Mint::unpack`). Fixed-supply mints (where `mint_authority = COption::None`) are rejected with `UnauthorizedAuthority` since no entity can authorize the binding.
 
 ### Mode Invariants
 
@@ -200,7 +211,7 @@ The two-way consistency check between `mode` and `pool_policy` (see `MissingPool
 
 ### EAML Capacity Sizing
 
-`MAX_EXTRA_METAS = 7` is the `Permissioned` count. Sizing for the max case avoids realloc CPIs on a `FreelyTransferable` → `Permissioned` mode flip; the per-PDA waste in `FreelyTransferable` mode is roughly 3 × `ExtraAccountMeta` ≈ 105 bytes, which is acceptable.
+`MAX_EXTRA_METAS = 8` is the `Permissioned` count. Sizing for the max case avoids realloc CPIs on a `FreelyTransferable` → `Permissioned` mode flip; the per-PDA waste in `FreelyTransferable` mode is roughly 4 × `ExtraAccountMeta` ≈ 140 bytes, which is acceptable.
 
 ### Frozen-Account Check Semantics
 
@@ -220,7 +231,7 @@ After all five steps, every `transfer` / `transfer_checked` on the mint routes t
 
 ## Integration with SVS-11
 
-SVS-11's `initialize_pool` creates the cPOOL shares mint with the `TransferHook` extension bound to `COMPLIANCE_HOOK_PROGRAM_ID` at the pool admin's authority. The pool initialization deliberately does NOT call `initialize_mint_config` or `initialize_extra_account_meta_list` inline — the deployment runbook performs those calls in a follow-up transaction directly against compliance-hook so that:
+SVS-11's `initialize_pool` creates the cPOOL shares mint with the `TransferHook` extension bound to `COMPLIANCE_HOOK_PROGRAM_ID` at the pool admin's authority. The pool initialization deliberately does NOT call `initialize_mint_config` or `initialize_extra_account_meta_list` inline — deployment performs those calls in a separate transaction directly against compliance-hook so that:
 
 - Anchor's `init` constraint on cross-program PDAs does not require svs-11 to forge signer privilege for an account it does not own.
 - `invoke_signed` seeds derive against the correct (compliance-hook) program ID.
@@ -239,7 +250,7 @@ The redemption escrow account that SVS-11 creates is sized for the `TransferHook
 | `MintConfig::SEED_PREFIX` | `b"mint_config"` | PDA seed literal prefix (suffix: mint pubkey) |
 | `MintConfig::SPACE` | `139` | Account allocation size (post-attestation-fields extension) |
 | `EXTRA_ACCOUNT_METAS_SEED` | `b"extra-account-metas"` | Token-2022 canonical seed for the EAML PDA — hyphen, NOT underscore |
-| `MAX_EXTRA_METAS` | `7` | Capacity sizing for the EAML (Permissioned mode count, iteration 1) |
+| `MAX_EXTRA_METAS` | `8` | Capacity sizing for the EAML (Permissioned mode count) |
 
 The program declares `declare_id!("6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P")`. See [CONSTANTS.md](CONSTANTS.md) for the full program-ID registry.
 
@@ -247,69 +258,14 @@ The program declares `declare_id!("6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P"
 
 - `programs/compliance-hook/src/lib.rs` — `#[program]` entry points
 - `programs/compliance-hook/src/state.rs` — `SanctionsList`, `ComplianceMode`, `MintConfig`
-- `programs/compliance-hook/src/error.rs` — `ComplianceHookError` (codes 6000–6011)
+- `programs/compliance-hook/src/error.rs` — `ComplianceHookError` (codes 6000–6017)
 - `programs/compliance-hook/src/instructions/initialize_sanctions_list.rs`
 - `programs/compliance-hook/src/instructions/initialize_mint_config.rs`
 - `programs/compliance-hook/src/instructions/initialize_extra_account_meta_list.rs`
 - `programs/compliance-hook/src/instructions/update_sanctions_list.rs`
+- `programs/compliance-hook/src/instructions/freeze_account.rs`
+- `programs/compliance-hook/src/instructions/unfreeze_account.rs`
 - `programs/compliance-hook/src/instructions/execute.rs`
-
-## Iteration 2 follow-ups
-
-This section captures known gaps in the iteration-1 implementation that are
-deliberately deferred. Each is a structural concern flagged during upstream
-review; they are NOT exploitable in the current state but block the program
-from being fully functional in Permissioned mode.
-
-### EAML cross-program PDA derivation (audit #2)
-
-The Permissioned-mode EAML in
-`initialize_extra_account_meta_list.rs` declares attestation extras using
-the seed convention `[b"attestation", source_owner_bytes_from_ATA]`
-derived under the compliance-hook program ID. The canonical SVS-11 /
-mock-sas attestation PDAs are seeded as
-`[b"attestation", subject, issuer, attestation_type]` derived under the
-attestation program (NOT compliance-hook). Consequence: the Token-2022
-runtime resolves PDAs that do not exist, the runtime passes default-zero
-accounts, and `execute::check_attestation` fails-CLOSED on its existence
-check (`AttestationNotFound`, 6002).
-
-This means Permissioned mode currently REJECTS ALL TRANSFERS. It is fail-
-closed (safe) but not functional. The proper fix:
-
-1. Use `ExtraAccountMeta::new_external_pda_with_seeds` instead of
-   `new_with_seeds` so the runtime derives under a foreign program ID.
-2. Add an `attestation_program` extra account at a fixed slot (capacity
-   bumps from 7 to 8) so `program_index` can reference it; or use a
-   `Seed::AccountKey` against the MintConfig and pull the program key
-   from a fixed offset.
-3. Replace the single-seed `[b"attestation", owner]` with the canonical
-   four-seed convention, sourcing `issuer` and `attestation_type` from
-   `MintConfig` data offsets via `Seed::AccountData`.
-4. Add Token-2022 + mint + EAML scaffolding to
-   `tests/compliance-hook.spec.ts` to exercise a real Permissioned-mode
-   transfer end-to-end.
-
-The defense-in-depth validation in `check_attestation` (owner / subject /
-issuer / type / canonical PDA) makes the failure mode safe even if a
-user manually passes a non-default account list to the hook.
-
-### Freeze instructions (audit #7)
-
-The EAML derives frozen-check PDAs at `[b"frozen", owner]` under
-compliance-hook, and `execute` reads their existence to enforce
-freezes. But compliance-hook does not yet ship `freeze_account` or
-`unfreeze_account` instructions — there is no on-chain path to populate
-the frozen PDA space, so the freeze check is structurally present but
-operationally inert (every owner reads as not-frozen).
-
-The intended design is a separate global freeze registry (one PDA per
-frozen owner) gated by the same `SanctionsList.authority` (Ops Guardian
-multisig), distinct from SVS-11's per-vault `[b"frozen_account", vault,
-investor]` freezes. The `freeze_account` ix authority signs, then the
-program creates a `[b"frozen", owner]` PDA with non-empty data;
-`unfreeze_account` closes the PDA back to lamport zero. Iteration 2
-will add these two instructions plus tests.
 
 ## See Also
 

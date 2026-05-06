@@ -344,11 +344,18 @@ await ComplianceHook.initializeMintConfig(program, {
   mint,
   mode: ComplianceMode.permissioned(),
   poolPolicy,
+  attestationProgram,
+  attestationIssuer,
+  requiredAttestationType: 0,
   mintAuthority: keypair,
 });
 
 // Add/remove sanctioned addresses
 await hook.updateSanctionsList({ authority: keypair, additions: [...], removals: [...] });
+
+// Freeze/unfreeze an owner globally across hook-bound mints
+await hook.freezeAccount({ authority: keypair, owner });
+await hook.unfreezeAccount({ authority: keypair, owner });
 ```
 
 ### NavOracle Class
@@ -369,7 +376,7 @@ await NavOracle.initialize(program, payer, {
 await NavOracle.update(program, {
   pool,
   args: { navNet, navGross, terBps, lossBps, navType, timestamp, sequence, loanTapeMerkleRoot, signature },
-  additionalSigners: [publisherKeypair],
+  publisher: publisherKeypair,
 });
 ```
 
@@ -384,10 +391,21 @@ import { DeRwaWrapper } from "@stbr/solana-vault";
 await DeRwaWrapper.initialize(program, payer, { pool, permissionedMint, derwaMint });
 
 // Wrap cPOOL → dePOOL (caller signs as cPOOL holder)
-await DeRwaWrapper.wrap(program, user, { user, amount });
+await DeRwaWrapper.wrap(program, user, {
+  user,
+  amount,
+  // Required when cPOOL has an active Token-2022 TransferHook:
+  // pass the cPOOL hook extras resolved from its EAML.
+  remainingAccounts: hookExtras,
+});
 
 // Unwrap dePOOL → cPOOL (requires valid attestation on destination)
-await DeRwaWrapper.unwrap(program, user, { user, amount, attestation });
+await DeRwaWrapper.unwrap(program, user, {
+  user,
+  amount,
+  attestation,
+  remainingAccounts: hookExtras,
+});
 ```
 
 See per-program docs for full instruction lists, account layouts, and security notes: [compliance-hook](compliance-hook.md), [nav-oracle](nav-oracle.md), [derwa-wrapper](derwa-wrapper.md).
