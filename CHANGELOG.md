@@ -249,7 +249,6 @@ Reference scripts demonstrating canonical deployment patterns for the new progra
 
 - Three new on-chain programs added to the workspace: `programs/compliance-hook`, `programs/nav-oracle`, `programs/derwa-wrapper`. Registered in `Anchor.toml` under `[programs.devnet]` and `[programs.localnet]`.
 - `tweetnacl` added as a devDependency for test-only off-chain Ed25519 signing of NAV payloads.
-- `@sqds/multisig` added as a devDependency for the reference Guardian deployment scripts.
 - `.gitignore` now ignores yarn 4 PnP artifacts (`.pnp.*`).
 
 ## [2.0.0] - 2026-04-04
