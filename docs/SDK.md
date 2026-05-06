@@ -380,6 +380,55 @@ await NavOracle.update(program, {
 });
 ```
 
+### CreditVault Class (SVS-11)
+
+Operator workflow for a credit pool: `create` (initialize_pool) →
+`bootstrapSharesCompliance` (init compliance-hook PDAs for cPOOL) →
+issue infrastructure attestation for the vault PDA (Permissioned mode
+only) → onboard investors via `requestDeposit` / `approveDeposit` /
+`claimDeposit`.
+
+```typescript
+import { CreditVault, ComplianceMode } from "@stbr/solana-vault";
+
+// Step 1 — pool init (binds TransferHook on cPOOL)
+const vault = await CreditVault.create(program, {
+  assetMint, manager, vaultId: 1, navOracle, oracleProgram,
+  attester, attestationProgram, minimumInvestment, maxStaleness,
+});
+
+// Step 2 — bootstrap compliance-hook for cPOOL (CPI signed by vault PDA)
+await vault.bootstrapSharesCompliance(authority.publicKey, {
+  mode: ComplianceMode.permissioned(),
+  poolPolicy,
+  attestationProgram,
+  attestationIssuer: attester.publicKey,
+  requiredAttestationType: 0,
+});
+
+// Step 3 — issue vault PDA system attestation via mock-sas / SAS
+//   (subject = vault.vault.toBase58(), issuer = attester, type = 0)
+//   Required so the cPOOL hook's destination-side check succeeds for
+//   redemption transfers (redemption_escrow.owner == vault).
+```
+
+The redemption flow (`requestRedeem` / `cancelRedeem`) accepts an
+optional `remainingAccounts: AccountMeta[]` parameter that forwards
+the resolved cPOOL hook extras to the on-chain CPI. Required when
+cPOOL has an active TransferHook; direction-asymmetric:
+
+```typescript
+// request_redeem: source = investor, destination = vault PDA
+await vault.requestRedeem(
+  investor.publicKey, shares, attestation,
+  /* frozenCheck */ undefined, /* queuedAt */ undefined,
+  hookExtrasInvestorToVault,
+);
+
+// cancel_redeem: source = vault PDA, destination = investor
+await vault.cancelRedeem(investor.publicKey, hookExtrasVaultToInvestor);
+```
+
 ### DeRwaWrapper Class
 
 1:1 wrap between a closed permissioned mint (cPOOL) and an open Token-2022 mint (dePOOL). Wrap is permissioned-by-construction; unwrap is attestation-gated.

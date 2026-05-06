@@ -1175,6 +1175,62 @@ solana-vault derwa unwrap --amount <u64> \
 solana-vault set-oracle-source <vault> --source <0|1>
 ```
 
+### `bootstrap-shares-compliance` (SVS-11)
+
+One-shot operator runbook step that initializes the compliance-hook
+`MintConfig` + `ExtraAccountMetaList` PDAs for the vault's cPOOL shares
+mint. MUST be run after `credit init` (initialize_pool) and BEFORE any
+cPOOL transfer (request_redeem / cancel_redeem) can succeed —
+`initialize_pool` binds the TransferHook extension on cPOOL but
+intentionally defers the per-mint compliance-hook PDAs because the
+vault PDA is the cPOOL mint authority and PDAs cannot top-level-sign
+for compliance-hook's `Signer == mint_authority` constraint. The
+on-chain handler CPIs into compliance-hook with `vault_seeds`,
+satisfying that constraint via Anchor's `invoke_signed`.
+
+```bash
+# FreelyTransferable cPOOL (sanctions + freeze gating only)
+solana-vault credit bootstrap-shares-compliance my-vault \
+  --mode freely-transferable
+
+# Permissioned cPOOL (full per-wallet attestation enforcement)
+solana-vault credit bootstrap-shares-compliance my-vault \
+  --mode permissioned \
+  --pool-policy <PoolPolicyPda> \
+  --attestation-program <SasOrMockSasProgramId> \
+  --attestation-issuer <AttesterPubkey> \
+  --required-attestation-type 0
+```
+
+For Permissioned mode, the operator MUST also issue a system
+attestation for the vault PDA (subject = `vault.key()`) via the
+configured attestation program. Without it, the destination-side
+attestation check on `request_redeem`'s cPOOL transfer rejects with
+`AttestationNotFound` (because `redemption_escrow.owner == vault`).
+This CLI does not issue the vault attestation — it's a separate
+attestation-program call documented in `docs/SVS-11.md::Pool Setup`.
+
+### `cancel-redeem` (SVS-11) — `--remaining-accounts`
+
+`credit cancel-redeem` accepts an optional `--remaining-accounts` flag
+that forwards Token-2022 TransferHook extras to the on-chain handler.
+Required when cPOOL has an active TransferHook extension (always true
+for modern svs-11 deployments). Direction-specific: cancel_redeem
+moves cPOOL from the vault's redemption_escrow back to the investor,
+so the EAML extras must resolve attestation PDAs for
+`(source = vault, destination = investor)` — opposite of
+request_redeem.
+
+```bash
+solana-vault credit cancel-redeem my-vault \
+  --remaining-accounts <pubkey1>,<pubkey2>,<pubkey3>,...
+```
+
+The off-chain SDK helper `resolveHookExtras` (in
+`tests/helpers/hook-mint.ts`) computes the correct address list for
+each direction; production callers typically wire this via a higher-
+level operator script that fetches the EAML and resolves seeds.
+
 All supporting-program commands honor the standard global flags (`--dry-run`, `--yes`, `--keypair`, `--url`, `--output`).
 
 See per-program docs for full account layouts and instruction details: [compliance-hook](./compliance-hook.md), [nav-oracle](./nav-oracle.md), [derwa-wrapper](./derwa-wrapper.md).
