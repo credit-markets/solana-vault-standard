@@ -13,7 +13,7 @@ pub struct InitializeSanctionsList<'info> {
     )]
     pub sanctions_list: Account<'info, SanctionsList>,
 
-    /// Authority for future updates (Ops Guardian Squads vault).
+    /// Authority for future updates.
     /// CHECK: validated by storing pubkey only; future calls verify signer matches.
     pub authority: UncheckedAccount<'info>,
 

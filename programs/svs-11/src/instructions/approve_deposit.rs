@@ -96,10 +96,10 @@ pub fn handler(ctx: Context<ApproveDeposit>) -> Result<()> {
 
     // Read NAV via the configured oracle source. This branch is the
     // emergency-revert safety hatch: if NavOracle has a bug post-deploy,
-    // the Protocol Guardian flips `oracle_source` to 0 via
+    // the configured governance authority flips `oracle_source` to 0 via
     // `set_oracle_source` and approve_* calls fall back to the legacy
-    // mock_oracle path. This is a one-tx Squads-signed flip — minutes
-    // to recover, not days for a full SVS-11 redeploy.
+    // mock_oracle path. This is a single governance-authorized tx —
+    // minutes to recover, not days for a full SVS-11 redeploy.
     //
     // The `nav_account` seeds constraint is INTENTIONALLY omitted on
     // the Accounts struct (see comment there) so the revert path

@@ -11,8 +11,8 @@ use crate::state::{FrozenAccount, SanctionsList};
 /// rejects with `AccountFrozen` if either is frozen.
 ///
 /// Authority: must equal `SanctionsList.authority` (the singleton's
-/// authority field — typically the Ops Guardian Squads multisig vault
-/// PDA). Same authority that controls the sanctions-list updates, so the
+/// authority field, typically a governance or multisig authority). Same
+/// authority that controls the sanctions-list updates, so the
 /// freeze + sanctions surfaces share a single rotation point.
 ///
 /// `owner_to_freeze` is an `UncheckedAccount` because we don't validate

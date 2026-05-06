@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 /// Global sanctions list (one per program deployment).
-/// Authority is held by the Ops Guardian Squads multisig vault.
+/// Authority is held by the deployment's configured governance authority.
 ///
 /// Address space: capped at 256 sanctioned wallets at init. Realloc
 /// extends capacity in 256-entry chunks if needed (future concern). The
@@ -9,7 +9,7 @@ use anchor_lang::prelude::*;
 /// limit (`MAX_PERMITTED_DATA_INCREASE`) so `init` succeeds in one CPI.
 #[account]
 pub struct SanctionsList {
-    /// Squads multisig PDA controlling updates.
+    /// Governance authority controlling updates.
     pub authority: Pubkey,
 
     /// Increments on every successful update; consumers can detect changes.
@@ -112,11 +112,11 @@ impl MintConfig {
 /// `lamports() > 0 && data_len() > 0` and rejects with `AccountFrozen`.
 ///
 /// Authority: created and closed by `freeze_account` / `unfreeze_account`,
-/// gated by `SanctionsList.authority` (typically the Ops Guardian Squads
-/// vault). This is intentionally a coarser policy than per-vault freezes
+/// gated by `SanctionsList.authority` (typically a governance or multisig
+/// authority). This is intentionally a coarser policy than per-vault freezes
 /// (e.g. SVS-11's `[b"frozen_account", vault, investor]`) — compliance-hook
 /// is a generic Token-2022 transfer hook and a single freeze authority
-/// makes operational sense for the Ops Guardian to manage across mints.
+/// is easier to manage across mints.
 ///
 /// The struct itself carries only `bump` so the account has a non-empty,
 /// well-formed body; the freeze CHECK in `execute` is purely existence-

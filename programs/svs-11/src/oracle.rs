@@ -93,8 +93,7 @@ pub fn read_and_validate_oracle(
 /// against a CreditVault-stored copy. This avoids a
 /// double-source-of-truth bug after `rotate_publisher` runs.
 /// Authority over publisher rotation is gated by
-/// `key_rotation_authority` in the nav-oracle program (Protocol
-/// Guardian Squads vault).
+/// `key_rotation_authority` in the nav-oracle program.
 ///
 /// Layout offsets (must match `nav_oracle::state::NavAccount`):
 ///

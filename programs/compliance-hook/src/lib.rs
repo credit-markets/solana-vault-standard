@@ -17,7 +17,8 @@ pub mod compliance_hook {
 
     /// Initialize the global `SanctionsList` PDA. Called once per
     /// program deployment; the `authority` set here gates all future
-    /// updates. Production: rotated to the Ops Guardian Squads vault.
+    /// updates. Production deployments should use their configured
+    /// governance authority.
     pub fn initialize_sanctions_list(ctx: Context<InitializeSanctionsList>) -> Result<()> {
         instructions::initialize_sanctions_list::handler(ctx)
     }
@@ -63,8 +64,8 @@ pub mod compliance_hook {
     }
 
     /// Mark a wallet as frozen across all hook-bound mints. Authority-gated
-    /// by `SanctionsList.authority` (typically the Ops Guardian Squads
-    /// vault). Creates the `[b"frozen", owner]` PDA; `execute` reads its
+    /// by `SanctionsList.authority` (typically a governance or multisig
+    /// authority). Creates the `[b"frozen", owner]` PDA; `execute` reads its
     /// existence to reject transfers involving the frozen wallet.
     pub fn freeze_account(ctx: Context<FreezeAccount>) -> Result<()> {
         instructions::freeze_account::handler(ctx)

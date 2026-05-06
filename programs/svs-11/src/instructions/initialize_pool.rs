@@ -206,8 +206,9 @@ pub fn handler(
     // → init extensions → init base mint state.
     //
     // The hook authority is set to the pool admin (`authority`) at
-    // first deploy so hot-fix flexibility is preserved. The deployment
-    // runbook rotates this authority to the Ops Guardian Squads vault.
+    // first deploy so hot-fix flexibility is preserved. Production
+    // deployments should rotate this authority to their configured
+    // governance authority.
     //
     // CROSS-PROGRAM INVARIANT: the cPOOL mint now points at
     // COMPLIANCE_HOOK_PROGRAM_ID, but the dependent PDAs that
