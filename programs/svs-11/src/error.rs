@@ -159,4 +159,7 @@ pub enum VaultError {
 
     #[msg("CreditVault.oracle_source must be 0 (mock) or 1 (nav_oracle); other values reserved")]
     OracleSourceInvalid,
+
+    #[msg("Mint account does not deserialize as a valid Token-2022 mint")]
+    InvalidMintAccount,
 }

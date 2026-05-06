@@ -33,9 +33,8 @@ pub struct InitializeWrapperArgs {
 ///   1. The cPOOL mint exists with ComplianceHook in Permissioned mode,
 ///      created inside `initialize_pool`.
 ///   2. The dePOOL mint exists with ComplianceHook in FreelyTransferable
-///      mode, created by `scripts/create-derwa-mint.ts`. That script
-///      currently DEFERS MintConfig + ExtraAccountMetaList init to the
-///      deployment runbook — see the script's KNOWN GAP header.
+///      mode, created by `scripts/create-derwa-mint.ts` with its
+///      MintConfig + ExtraAccountMetaList initialized.
 ///   3. The dePOOL mint authority is the `wrapper_signer` PDA (set by
 ///      the create-derwa-mint script).
 ///

@@ -30,7 +30,10 @@ pub mod derwa_wrapper {
     /// Investor transfers cPOOL into wrapper-PDA-owned ATA; wrapper mints
     /// dePOOL to investor. `locked_supply` increments to enforce the
     /// invariant `locked_supply == dePOOL.supply`.
-    pub fn wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
+    pub fn wrap<'info>(
+        ctx: Context<'_, '_, '_, 'info, Wrap<'info>>,
+        amount: u64,
+    ) -> Result<()> {
         instructions::wrap::handler(ctx, amount)
     }
 
@@ -38,7 +41,10 @@ pub mod derwa_wrapper {
     /// to investor — but ONLY if the destination wallet has a valid,
     /// non-revoked, non-expired attestation. Prevents non-KYB buyers from
     /// escaping the permissioned token via DEX-purchased dePOOL → unwrap.
-    pub fn unwrap(ctx: Context<Unwrap>, amount: u64) -> Result<()> {
+    pub fn unwrap<'info>(
+        ctx: Context<'_, '_, '_, 'info, Unwrap<'info>>,
+        amount: u64,
+    ) -> Result<()> {
         instructions::unwrap::handler(ctx, amount)
     }
 }

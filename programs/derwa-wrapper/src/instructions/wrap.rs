@@ -1,10 +1,33 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{
-    mint_to, transfer_checked, Mint, MintTo, TokenAccount, TokenInterface, TransferChecked,
+use anchor_lang::solana_program::program::invoke_signed;
+use anchor_spl::token_2022::spl_token_2022;
+use anchor_spl::token_2022::spl_token_2022::extension::{
+    transfer_hook::TransferHook, BaseStateWithExtensions, StateWithExtensions,
 };
+use anchor_spl::token_2022::spl_token_2022::state::Mint as Token2022Mint;
+use anchor_spl::token_interface::{
+    mint_to, Mint, MintTo, TokenAccount, TokenInterface,
+};
+use spl_transfer_hook_interface::onchain::add_extra_accounts_for_execute_cpi;
 
 use crate::error::DeRwaError;
 use crate::state::WrapperConfig;
+
+/// Extract the hook program ID from a Token-2022 mint's `TransferHook`
+/// extension. Returns `None` for legacy SPL mints, mints without the
+/// extension, or mints with the extension explicitly cleared.
+fn read_hook_program_id(mint: &AccountInfo) -> Result<Option<Pubkey>> {
+    if mint.owner != &spl_token_2022::ID {
+        return Ok(None);
+    }
+    let data = mint.try_borrow_data()?;
+    let state = StateWithExtensions::<Token2022Mint>::unpack(&data)
+        .map_err(|_| error!(DeRwaError::MintMismatch))?;
+    match state.get_extension::<TransferHook>() {
+        Ok(ext) => Ok(Option::<Pubkey>::from(ext.program_id)),
+        Err(_) => Ok(None),
+    }
+}
 
 /// Wrap permissioned cPOOL → freely-transferable dePOOL at 1:1.
 ///
@@ -13,20 +36,25 @@ use crate::state::WrapperConfig;
 /// `locked_supply` increments to maintain the on-chain invariant
 /// `locked_supply == dePOOL.supply`.
 ///
-/// ─── HOOK ACCOUNT NOTE ────────────────────────────────────────────────────
-/// The cPOOL `transfer_checked` CPI invokes ComplianceHook in Permissioned
-/// mode. Token-2022's runtime auto-resolves the hook's ExtraAccountMetaList
-/// for top-level user txs, but for a CPI like this one the CALLER must
-/// pass the extra accounts in `remaining_accounts`. The current `Wrap`
-/// accounts struct does NOT surface them. Three resolution paths:
-///   (a) extend this struct to pass through remaining_accounts (preferred),
-///   (b) gate cPOOL on a "mode = FreelyTransferable for wrapper-PDA-bound
-///       transfers" rule inside compliance-hook's `execute`,
-///   (c) accept that the hook MintConfig isn't initialised yet so the
-///       hook is a no-op on devnet.
-/// Option (c) holds for the current devnet state. Once MintConfig
-/// initialisation lands, integration tests will surface the issue and
-/// we'll switch to (a).
+/// ─── HOOK ACCOUNT FORWARDING ──────────────────────────────────────────────
+/// The cPOOL `transfer_checked` CPI invokes ComplianceHook (typically in
+/// Permissioned mode). Token-2022 auto-resolves the hook's
+/// ExtraAccountMetaList for top-level user txs, but for a CPI the CALLER
+/// must pass the extra accounts in `remaining_accounts`. We forward
+/// `ctx.remaining_accounts` verbatim to the CPI via
+/// `with_remaining_accounts(...)`. Off-chain SDK callers must build the
+/// `wrap` instruction with the resolved EAML extras for the source =
+/// investor → destination = wrapper_signer transfer; the SDK's
+/// `DeRwaWrapper.wrap` helper exposes this as a caller-supplied
+/// `remainingAccounts` parameter.
+///
+/// The wrapper PDA (`wrapper_signer`) is the destination of the cPOOL
+/// transfer. In Permissioned mode the hook validates BOTH owners — so the
+/// wrapper deploy must issue a "system attestation" for `wrapper_signer`
+/// in the same attestation program as regular investors (subject =
+/// wrapper_signer, issuer + type matching `WrapperConfig`'s anchors).
+/// Without it, the destination-attestation check fails. The operator
+/// bootstrap flow must create this attestation before opening wrapping.
 /// ──────────────────────────────────────────────────────────────────────────
 #[derive(Accounts)]
 pub struct Wrap<'info> {
@@ -89,23 +117,59 @@ pub struct Wrap<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
-pub fn handler(ctx: Context<Wrap>, amount: u64) -> Result<()> {
+pub fn handler<'info>(
+    ctx: Context<'_, '_, '_, 'info, Wrap<'info>>,
+    amount: u64,
+) -> Result<()> {
     require!(amount > 0, DeRwaError::ZeroAmount);
 
     // 1. Transfer cPOOL from investor → wrapper PDA's ATA.
     //    `transfer_checked` is the Token-2022 path that respects the
-    //    TransferHook extension. See HOOK ACCOUNT NOTE in the doc above for
-    //    the remaining_accounts caveat.
-    let cpi_ctx = CpiContext::new(
-        ctx.accounts.token_program.to_account_info(),
-        TransferChecked {
-            from: ctx.accounts.investor_permissioned_ata.to_account_info(),
-            mint: ctx.accounts.permissioned_mint.to_account_info(),
-            to: ctx.accounts.wrapper_locked_ata.to_account_info(),
-            authority: ctx.accounts.investor.to_account_info(),
-        },
-    );
-    transfer_checked(cpi_ctx, amount, ctx.accounts.permissioned_mint.decimals)?;
+    //    TransferHook extension. Token-2022's `invoke_execute` looks up
+    //    the hook program + EAML PDA + resolved extras in the INNER ix's
+    //    keys list (not in the surrounding tx accounts), so we cannot
+    //    rely on Anchor's `with_remaining_accounts` alone — that only
+    //    extends the CPI account_infos, not the inner ix's `accounts`
+    //    field. We build the bare `transfer_checked` ix from
+    //    spl-token-2022 and let `add_extra_accounts_for_execute_cpi`
+    //    extend BOTH the ix keys list AND the cpi_account_infos with
+    //    the hook program + EAML + resolved extras (sourced from
+    //    `ctx.remaining_accounts`). The off-chain SDK's `wrap` helper
+    //    builds the corresponding `remainingAccounts` slice so this
+    //    extension finds what it needs.
+    let mut transfer_ix = spl_token_2022::instruction::transfer_checked(
+        &spl_token_2022::ID,
+        &ctx.accounts.investor_permissioned_ata.key(),
+        &ctx.accounts.permissioned_mint.key(),
+        &ctx.accounts.wrapper_locked_ata.key(),
+        &ctx.accounts.investor.key(),
+        &[],
+        amount,
+        ctx.accounts.permissioned_mint.decimals,
+    )?;
+    let mut transfer_account_infos: Vec<AccountInfo<'info>> = vec![
+        ctx.accounts.investor_permissioned_ata.to_account_info(),
+        ctx.accounts.permissioned_mint.to_account_info(),
+        ctx.accounts.wrapper_locked_ata.to_account_info(),
+        ctx.accounts.investor.to_account_info(),
+    ];
+    if let Some(hook_program_id) =
+        read_hook_program_id(&ctx.accounts.permissioned_mint.to_account_info())?
+    {
+        add_extra_accounts_for_execute_cpi(
+            &mut transfer_ix,
+            &mut transfer_account_infos,
+            &hook_program_id,
+            ctx.accounts.investor_permissioned_ata.to_account_info(),
+            ctx.accounts.permissioned_mint.to_account_info(),
+            ctx.accounts.wrapper_locked_ata.to_account_info(),
+            ctx.accounts.investor.to_account_info(),
+            amount,
+            ctx.remaining_accounts,
+        )
+        .map_err(|e| -> Error { e.into() })?;
+    }
+    invoke_signed(&transfer_ix, &transfer_account_infos, &[])?;
 
     // 2. Mint dePOOL to investor (1:1).
     //

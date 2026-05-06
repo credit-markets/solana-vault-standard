@@ -68,8 +68,8 @@ pub mod svs_11 {
     /// redemption-scheduler service and represents the next
     /// settlement-date epoch this request will be eligible for.
     /// `approve_redeem` may auto-bump this on partial fulfillment.
-    pub fn request_redeem(
-        ctx: Context<RequestRedeem>,
+    pub fn request_redeem<'info>(
+        ctx: Context<'_, '_, '_, 'info, RequestRedeem<'info>>,
         shares: u64,
         queued_for_settlement_at: i64,
     ) -> Result<()> {

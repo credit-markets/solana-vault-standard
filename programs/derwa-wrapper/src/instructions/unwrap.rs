@@ -1,10 +1,33 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{
-    burn, transfer_checked, Burn, Mint, TokenAccount, TokenInterface, TransferChecked,
+use anchor_lang::solana_program::program::invoke_signed;
+use anchor_spl::token_2022::spl_token_2022;
+use anchor_spl::token_2022::spl_token_2022::extension::{
+    transfer_hook::TransferHook, BaseStateWithExtensions, StateWithExtensions,
 };
+use anchor_spl::token_2022::spl_token_2022::state::Mint as Token2022Mint;
+use anchor_spl::token_interface::{burn, Burn, Mint, TokenAccount, TokenInterface};
+use spl_transfer_hook_interface::onchain::add_extra_accounts_for_execute_cpi;
 
 use crate::error::DeRwaError;
 use crate::state::WrapperConfig;
+
+/// Same helper as `wrap.rs::read_hook_program_id` — extract the hook
+/// program from the mint's TransferHook extension. Duplicated rather
+/// than refactored into a shared module to keep the unwrap CPI
+/// self-contained; the function is small enough that the duplication
+/// reads cleaner than a cross-module dependency.
+fn read_hook_program_id(mint: &AccountInfo) -> Result<Option<Pubkey>> {
+    if mint.owner != &spl_token_2022::ID {
+        return Ok(None);
+    }
+    let data = mint.try_borrow_data()?;
+    let state = StateWithExtensions::<Token2022Mint>::unpack(&data)
+        .map_err(|_| error!(DeRwaError::MintMismatch))?;
+    match state.get_extension::<TransferHook>() {
+        Ok(ext) => Ok(Option::<Pubkey>::from(ext.program_id)),
+        Err(_) => Ok(None),
+    }
+}
 
 /// Unwrap dePOOL → cPOOL at 1:1, attestation-gated.
 ///
@@ -121,7 +144,10 @@ pub struct Unwrap<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
-pub fn handler(ctx: Context<Unwrap>, amount: u64) -> Result<()> {
+pub fn handler<'info>(
+    ctx: Context<'_, '_, '_, 'info, Unwrap<'info>>,
+    amount: u64,
+) -> Result<()> {
     require!(amount > 0, DeRwaError::ZeroAmount);
     require!(
         ctx.accounts.wrapper_config.locked_supply >= amount,
@@ -149,34 +175,61 @@ pub fn handler(ctx: Context<Unwrap>, amount: u64) -> Result<()> {
     );
     burn(cpi_ctx, amount)?;
 
-    // 3. Transfer cPOOL from wrapper PDA back to investor (wrapper PDA signs
-    //    via signer_seeds). Goes through ComplianceHook in Permissioned mode
-    //    once the hook is fully wired — investor must be attested. Our
-    //    explicit check in step 1 already ensured this; the hook check is
-    //    redundant defense-in-depth (or the only gate, while the hook
-    //    EAML extras are still being finalized — see docs/derwa-wrapper.md
-    //    for the EAML status).
+    // 3. Transfer cPOOL from wrapper PDA back to investor (wrapper PDA
+    //    signs via signer_seeds). Goes through ComplianceHook in
+    //    Permissioned mode — investor must be attested AND the wrapper
+    //    PDA itself must hold a system attestation (issued at wrapper
+    //    deploy time). Our explicit check in step 1 already validated the
+    //    investor's attestation; the hook check is defense-in-depth on
+    //    the source side (wrapper_signer) and reaffirms the destination.
+    //
+    //    `ctx.remaining_accounts` carries the EAML extras for the cPOOL
+    //    transfer with `(source = wrapper_signer, destination = investor)`;
+    //    the SDK's `DeRwaWrapper.unwrap` helper exposes these as a
+    //    caller-supplied `remainingAccounts` parameter.
+    // Same CPI-extension dance as `wrap.rs`: build the bare
+    // transfer_checked ix and let `add_extra_accounts_for_execute_cpi`
+    // append the hook program + EAML + resolved extras to the inner ix
+    // keys list. wrapper_signer signs via `signer_seeds`.
     let pool_key = ctx.accounts.wrapper_config.pool;
     let signer_seeds: &[&[&[u8]]] = &[&[
         b"wrapper_signer",
         pool_key.as_ref(),
         &[ctx.bumps.wrapper_signer],
     ]];
-    let cpi_ctx = CpiContext::new_with_signer(
-        ctx.accounts.token_program.to_account_info(),
-        TransferChecked {
-            from: ctx.accounts.wrapper_locked_ata.to_account_info(),
-            mint: ctx.accounts.permissioned_mint.to_account_info(),
-            to: ctx.accounts.investor_permissioned_ata.to_account_info(),
-            authority: ctx.accounts.wrapper_signer.to_account_info(),
-        },
-        signer_seeds,
-    );
-    transfer_checked(
-        cpi_ctx,
+    let mut transfer_ix = spl_token_2022::instruction::transfer_checked(
+        &spl_token_2022::ID,
+        &ctx.accounts.wrapper_locked_ata.key(),
+        &ctx.accounts.permissioned_mint.key(),
+        &ctx.accounts.investor_permissioned_ata.key(),
+        &ctx.accounts.wrapper_signer.key(),
+        &[],
         amount,
         ctx.accounts.permissioned_mint.decimals,
     )?;
+    let mut transfer_account_infos: Vec<AccountInfo<'info>> = vec![
+        ctx.accounts.wrapper_locked_ata.to_account_info(),
+        ctx.accounts.permissioned_mint.to_account_info(),
+        ctx.accounts.investor_permissioned_ata.to_account_info(),
+        ctx.accounts.wrapper_signer.to_account_info(),
+    ];
+    if let Some(hook_program_id) =
+        read_hook_program_id(&ctx.accounts.permissioned_mint.to_account_info())?
+    {
+        add_extra_accounts_for_execute_cpi(
+            &mut transfer_ix,
+            &mut transfer_account_infos,
+            &hook_program_id,
+            ctx.accounts.wrapper_locked_ata.to_account_info(),
+            ctx.accounts.permissioned_mint.to_account_info(),
+            ctx.accounts.investor_permissioned_ata.to_account_info(),
+            ctx.accounts.wrapper_signer.to_account_info(),
+            amount,
+            ctx.remaining_accounts,
+        )
+        .map_err(|e| -> Error { e.into() })?;
+    }
+    invoke_signed(&transfer_ix, &transfer_account_infos, signer_seeds)?;
 
     // 4. Update locked_supply. The earlier `>= amount` require! ensures this
     //    underflow check passes; .unwrap() panicking would indicate a bug in

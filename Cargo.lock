@@ -644,6 +644,7 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+ "spl-transfer-hook-interface",
 ]
 
 [[package]]
@@ -2940,6 +2941,7 @@ dependencies = [
  "compliance-hook",
  "mock-sas",
  "spl-token-2022",
+ "spl-transfer-hook-interface",
  "svs-access",
  "svs-caps",
  "svs-fees",
