@@ -47,12 +47,20 @@ fn read_hook_program_id(mint: &AccountInfo) -> Result<Option<Pubkey>> {
 ///      program with attacker-controlled data.
 ///
 ///   2. **Subject binding**: `payload[0..32] == investor.key()`. This is
-///      the most subtle check — earlier drafts of this handler reasoned
-///      that "anyone passing a stranger's attestation would have to find
-///      one with stranger == investor", which is FALSE. Without reading
-///      the subject field, an attacker can pass any pre-existing valid
-///      attestation (e.g. a friend's KYC'd attestation account) and the
-///      handler would happily unwrap to the attacker.
+///      the most subtle check, and it is NOT redundant with the canonical
+///      PDA derivation in (5). One might reason that "passing a stranger's
+///      attestation would require finding one whose subject equals the
+///      investor, which is the same as having a real attestation"; that
+///      reasoning is incorrect. Without reading the subject field
+///      directly, the handler accepts any pre-existing valid attestation
+///      (e.g. a friend's KYC'd account) for ANY investor passed as the
+///      tx authority — silently unwrapping permissioned cPOOL into a
+///      non-attested wallet. Re-deriving the canonical PDA in (5) closes
+///      the same hole atomically, but explicit subject comparison
+///      surfaces a clear, mode-specific error code on mismatch
+///      (`InvalidAttestationSubject`) rather than the generic
+///      `InvalidAttestationPda`, which makes downstream incident
+///      response easier.
 ///
 ///   3. **Issuer match**: `payload[32..64] ==
 ///      wrapper_config.attestation_issuer`. Pins the trust anchor to a
