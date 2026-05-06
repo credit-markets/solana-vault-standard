@@ -35,8 +35,7 @@ pub mod svs_11 {
     /// before any cPOOL transfer can succeed (Token-2022 invokes the hook
     /// on every transfer, and the hook handler reads MintConfig + EAML).
     /// See `instructions/bootstrap_shares_compliance.rs` for the full
-    /// architectural rationale (including a correction of the stale
-    /// "signer privilege escalated" comment in `initialize_pool.rs`).
+    /// architectural rationale.
     pub fn bootstrap_shares_compliance(
         ctx: Context<BootstrapSharesCompliance>,
         args: BootstrapSharesComplianceArgs,
