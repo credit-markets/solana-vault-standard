@@ -1,27 +1,33 @@
 /**
  * derwa-wrapper integration tests.
  *
- * Scope: this is a UNIT-level integration test of the wrapper logic only.
- * It does NOT exercise the Token-2022 TransferHook → ComplianceHook path
- * because:
- *   1. Original spec deferred MintConfig + ExtraAccountMetaList init
- *      to the deployment runbook (compliance-hook lacks a
- *      public initialize_mint_config ix). Without those PDAs the hook
- *      cannot resolve extra accounts on the in-CPI transfer_checked path.
- *   2. Even with those PDAs, the wrapper's `wrap` / `unwrap` CPIs would
- *      need remaining_accounts forwarding (Token-2022 auto-resolution
- *      doesn't apply to CPI). That gap is documented in wrap.rs / unwrap.rs.
+ * The cPOOL mint is constructed with an active Token-2022 TransferHook
+ * extension pointing at compliance-hook in Permissioned mode. Both
+ * `wrap` and `unwrap` CPI transfers run through the real hook and must
+ * receive the EAML extras via `remainingAccounts` (resolved off-chain
+ * by `resolveHookExtras`) — proving the program's CPI remaining-account
+ * forwarding wires correctly into the
+ * Token-2022 hook invocation.
  *
- * What we test here:
+ * Permissioned-mode hooks validate BOTH transfer owners. For the
+ * wrapper-mediated transfers, that means:
+ *   - `wrap`:    source = investor       → dest = wrapper_signer (PDA)
+ *   - `unwrap`:  source = wrapper_signer → dest = investor
+ * So the suite issues attestations for the investor AND a "system"
+ * attestation for `wrapper_signer`. The `wrapper_signer` PDA cannot
+ * actually perform KYB; this just satisfies the hook's owner check on
+ * the wrapper-bound side of every transfer (mock-sas accepts any
+ * subject — production deployments would issue this from the
+ * compliance attester at wrapper-deploy time).
+ *
+ * What we test:
  *   ✅ wrap moves cPOOL → wrapper PDA + mints dePOOL 1:1 + bumps locked_supply
- *   ✅ unwrap with valid attestation burns dePOOL + releases cPOOL + decrements locked_supply
+ *      (cPOOL transfer goes through the active Permissioned hook)
+ *   ✅ unwrap with valid attestation burns dePOOL + releases cPOOL
+ *      (cPOOL transfer goes through the active Permissioned hook)
  *   ✅ unwrap without attestation rejects with AttestationRequired (8001)
- *
- * What we DO NOT test (deferred to the e2e deployment runbook):
- *   ❌ Hook-enforced sanctions checks during wrap (cPOOL transfer)
- *   ❌ Hook-enforced attestation checks during unwrap (cPOOL transfer)
- *   ❌ Mint-substitution attacks via wrap to a different (cPOOL, dePOOL) pair
- *      — partially covered by the MintMismatch constraint compile-time test
+ *      via the wrapper's explicit check (fires BEFORE the cPOOL CPI)
+ *   ✅ rejects unwrap when attestation belongs to a DIFFERENT subject (8005)
  */
 
 import * as anchor from "@coral-xyz/anchor";
@@ -37,14 +43,21 @@ import {
   createMint,
   createAssociatedTokenAccountIdempotent,
   mintTo,
-  setAuthority,
-  AuthorityType,
   getAccount,
 } from "@solana/spl-token";
 import { expect } from "chai";
 
+import { ComplianceHook } from "../target/types/compliance_hook";
 import { DerwaWrapper } from "../target/types/derwa_wrapper";
 import { MockSas as MockAttestation } from "../target/types/mock_sas";
+import {
+  ComplianceModeArg,
+  createHookBoundMint,
+  createSvsAttestation,
+  initEaml,
+  initMintConfig,
+  resolveHookExtras,
+} from "./helpers/hook-mint";
 
 // Mock-sas program ID — matches Anchor.toml entry. Same constant used by
 // svs-11.ts; if mock-sas is redeployed, both must update.
@@ -57,6 +70,8 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const program = anchor.workspace.DerwaWrapper as Program<DerwaWrapper>;
+  const complianceHook = anchor.workspace
+    .ComplianceHook as Program<ComplianceHook>;
   const mockSas = anchor.workspace.MockSas as Program<MockAttestation>;
   const connection = provider.connection;
   const payer = (provider.wallet as anchor.Wallet).payer;
@@ -68,14 +83,50 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
   // doesn't deserialize, so any pubkey works
 
   // Per-test-setup-derived state.
-  let permissionedMint: PublicKey; // cPOOL
-  let derwaMint: PublicKey; // dePOOL
+  let permissionedMint: PublicKey; // cPOOL (Permissioned hook active)
+  let derwaMint: PublicKey; // dePOOL (FreelyTransferable hook active)
   let wrapperConfigPda: PublicKey;
   let wrapperSignerPda: PublicKey;
   let investorPermAta: PublicKey;
   let investorDerwaAta: PublicKey;
   let wrapperLockedAta: PublicKey;
   let attestationPda: PublicKey;
+  // Permissioned-hook trust anchor for cPOOL — also captured by
+  // `WrapperConfig` so `unwrap`'s explicit attestation check uses the
+  // same trust posture as the on-chain hook.
+  const REQUIRED_TYPE = 0;
+  // Arbitrary pool_policy pubkey — `execute` does not enforce thresholds
+  // against it (reserved slot for a future policy-enforcement layer), so
+  // any non-default pubkey works for this test.
+  const cPoolPolicy = Keypair.generate().publicKey;
+
+  // EAML extras for the cPOOL Permissioned hook, computed per direction
+  // because the (source_owner, dest_owner) pair drives the
+  // source_attestation / destination_attestation cross-program PDAs.
+  const wrapHookExtras = (): ReturnType<typeof resolveHookExtras> =>
+    resolveHookExtras({
+      complianceHookProgramId: complianceHook.programId,
+      mint: permissionedMint,
+      sourceOwner: investor.publicKey,
+      destinationOwner: wrapperSignerPda,
+      permissioned: true,
+      attestationProgram: ATTESTATION_PROGRAM_ID,
+      attestationIssuer: attester.publicKey,
+      requiredAttestationType: REQUIRED_TYPE,
+      poolPolicy: cPoolPolicy,
+    });
+  const unwrapHookExtras = (): ReturnType<typeof resolveHookExtras> =>
+    resolveHookExtras({
+      complianceHookProgramId: complianceHook.programId,
+      mint: permissionedMint,
+      sourceOwner: wrapperSignerPda,
+      destinationOwner: investor.publicKey,
+      permissioned: true,
+      attestationProgram: ATTESTATION_PROGRAM_ID,
+      attestationIssuer: attester.publicKey,
+      requiredAttestationType: REQUIRED_TYPE,
+      poolPolicy: cPoolPolicy,
+    });
 
   const WRAP_AMOUNT = new BN(1_000_000); // 1.0 token at 6 decimals
 
@@ -97,24 +148,56 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
       program.programId,
     );
 
-    // Create cPOOL (permissioned mint). For these unit tests we DO NOT bind
-    // the TransferHook extension — the hook integration is deferred to the
-    // deployment runbook (see file header). Investor is the initial
-    // mint authority just so we can fund the investor's cPOOL ATA.
-    permissionedMint = await createMint(
+    // Ensure the global SanctionsList exists. The compliance-hook test
+    // suite usually creates it first, but anchor test runs are file-
+    // ordered alphabetically (compliance-hook runs before derwa-wrapper),
+    // so it should exist. We make this idempotent against re-runs by
+    // tolerating "already in use".
+    try {
+      const [sanctionsListPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("sanctions_list")],
+        complianceHook.programId,
+      );
+      await complianceHook.methods
+        .initializeSanctionsList()
+        .accountsPartial({
+          sanctionsList: sanctionsListPda,
+          authority: provider.wallet.publicKey,
+          payer: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    } catch (_err) {
+      // already initialized — fine
+    }
+
+    // Create cPOOL (permissioned mint) WITH the TransferHook extension
+    // pointing at compliance-hook. The Permissioned MintConfig + EAML
+    // get initialized below.
+    ({ mint: permissionedMint } = await createHookBoundMint(
       connection,
       payer,
-      investor.publicKey,
-      null,
+      investor.publicKey, // mint authority + ext authority — investor for test convenience
+      complianceHook.programId,
       6,
-      undefined,
-      undefined,
-      TOKEN_2022_PROGRAM_ID,
-    );
+    ));
 
-    // Create dePOOL with `wrapperSignerPda` as the mint authority directly
-    // — the wrapper PDA is the only entity allowed to mint dePOOL via wrap().
-    // Setting it at create time avoids the round-trip of createMint + setAuthority.
+    // Bind cPOOL to compliance-hook in Permissioned mode. Trust anchors
+    // match what WrapperConfig will store, so the on-chain hook AND the
+    // wrapper's explicit unwrap check enforce the same posture.
+    await initMintConfig(complianceHook, permissionedMint, investor, payer, {
+      mode: ComplianceModeArg.permissioned(),
+      poolPolicy: cPoolPolicy,
+      attestationProgram: ATTESTATION_PROGRAM_ID,
+      attestationIssuer: attester.publicKey,
+      requiredAttestationType: REQUIRED_TYPE,
+    });
+    await initEaml(complianceHook, permissionedMint, investor, payer);
+
+    // dePOOL: FreelyTransferable mode. The wrapper PDA owns mint+freeze
+    // authority. We DON'T bind a hook for dePOOL in this test (its
+    // canonical config would be FreelyTransferable, but mint_to in
+    // wrap.rs doesn't trigger a hook anyway — only transfer_checked does).
     derwaMint = await createMint(
       connection,
       payer,
@@ -144,8 +227,6 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
       TOKEN_2022_PROGRAM_ID,
     );
     // wrapperSignerPda is a PDA (off-curve) — pass allowOwnerOffCurve=true.
-    // The signature is positional: (connection, payer, mint, owner,
-    // confirmOptions?, programId?, associatedTokenProgramId?, allowOwnerOffCurve?).
     wrapperLockedAta = await createAssociatedTokenAccountIdempotent(
       connection,
       payer,
@@ -157,8 +238,9 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
       true,
     );
 
-    // Mint cPOOL to investor — provides the source funds for the wrap test.
-    // Investor is the cPOOL mint authority (test-only convenience).
+    // Mint cPOOL to investor. `mint_to` does NOT go through the
+    // TransferHook (only `transfer_checked` does), so this works even
+    // with the Permissioned hook bound.
     await mintTo(
       connection,
       payer,
@@ -169,6 +251,34 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
       [],
       undefined,
       TOKEN_2022_PROGRAM_ID,
+    );
+
+    // Issue the investor's KYB attestation. Subject = investor.
+    await createSvsAttestation(
+      mockSas,
+      payer,
+      investor.publicKey,
+      attester.publicKey,
+      REQUIRED_TYPE,
+      [66, 82],
+      FAR_FUTURE_EXPIRY,
+    );
+
+    // Issue the wrapper-PDA "system" attestation. Subject =
+    // wrapper_signer. The Permissioned hook validates BOTH owners on
+    // every cPOOL transfer; without this the wrap's investor → wrapper
+    // CPI and the unwrap's wrapper → investor CPI both fail at the
+    // wrapper-side attestation check. Mock-sas accepts off-curve PDAs
+    // as subjects, which mirrors what real attestation programs would
+    // need to support for wrapped-asset deployments.
+    await createSvsAttestation(
+      mockSas,
+      payer,
+      wrapperSignerPda,
+      attester.publicKey,
+      REQUIRED_TYPE,
+      [66, 82],
+      FAR_FUTURE_EXPIRY,
     );
 
     // Initialize the wrapper for this pool.
@@ -182,7 +292,7 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
       .initialize({
         attestationProgram: ATTESTATION_PROGRAM_ID,
         attestationIssuer: attester.publicKey,
-        requiredAttestationType: 0,
+        requiredAttestationType: REQUIRED_TYPE,
       })
       .accountsPartial({
         pool: pool.publicKey,
@@ -228,6 +338,12 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
         investor: investor.publicKey,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
+      // Pass the resolved EAML extras for the cPOOL transfer
+      // (source = investor, destination = wrapper_signer). The wrap
+      // handler forwards these into the `transfer_checked` CPI via
+      // `with_remaining_accounts` so the active Permissioned hook can
+      // validate both owners.
+      .remainingAccounts(wrapHookExtras())
       .signers([investor])
       .rpc();
 
@@ -268,29 +384,18 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
   });
 
   it("unwrap with valid attestation burns dePOOL + releases cPOOL", async () => {
-    // Create a real attestation PDA for the investor via mock-sas. The
-    // mock-sas attestation layout matches what compliance-hook + unwrap
-    // both read (129 bytes total, expires_at at payload[75..83], revoked
-    // at payload[83]).
+    // Resolve the investor's attestation PDA — already created during
+    // `before()` setup, so we just compute its address here for the
+    // `investorAttestation` account-meta on the unwrap ix.
     [attestationPda] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("attestation"),
         investor.publicKey.toBuffer(),
         attester.publicKey.toBuffer(),
-        Buffer.from([0]), // attestation_type = 0 (KYB tier 0)
+        Buffer.from([REQUIRED_TYPE]),
       ],
       ATTESTATION_PROGRAM_ID,
     );
-
-    await mockSas.methods
-      .createAttestation(attester.publicKey, 0, [66, 82], FAR_FUTURE_EXPIRY)
-      .accountsPartial({
-        authority: payer.publicKey,
-        attestation: attestationPda,
-        subject: investor.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
 
     const investorPermBefore = await getAccount(
       connection,
@@ -319,6 +424,11 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
         investor: investor.publicKey,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
+      // Pass the resolved EAML extras for the cPOOL transfer
+      // (source = wrapper_signer, destination = investor). Different
+      // direction than `wrap`, so source/destination_attestation PDAs
+      // resolve to different addresses.
+      .remainingAccounts(unwrapHookExtras())
       .signers([investor])
       .rpc();
 
@@ -364,6 +474,7 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
         investor: investor.publicKey,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
+      .remainingAccounts(wrapHookExtras())
       .signers([investor])
       .rpc();
 
@@ -403,10 +514,10 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
       errored = true;
       const errStr = String(e);
       // Either rejection is acceptable: 8001 = AttestationRequired,
-      // 8004 = InvalidAttestationProgram. Iteration-1 ordering yields
-      // 8004 first; if a future re-ordering (existence-first) ever
-      // ships, 8001 would be expected — both indicate the unwrap
-      // handler refused.
+      // 8004 = InvalidAttestationProgram. Current validation checks
+      // ownership before existence; if a future ordering checks
+      // existence first, 8001 would still indicate the unwrap handler
+      // refused the fake attestation.
       expect(
         errStr.includes("InvalidAttestationProgram") ||
           errStr.includes("AttestationRequired") ||
@@ -478,6 +589,7 @@ describe("derwa-wrapper: wrap + unwrap roundtrip", () => {
         investor: investor.publicKey,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
+      .remainingAccounts(wrapHookExtras())
       .signers([investor])
       .rpc();
 
