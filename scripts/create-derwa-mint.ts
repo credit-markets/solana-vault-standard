@@ -196,14 +196,15 @@ async function main() {
     }),
     // b. Initialize the TransferHook extension pointing at compliance-hook.
     //    The extension AUTHORITY (= operator here) can later rotate the hook
-    //    program ID. The deployment runbook rotates this to the Ops
-    //    Guardian Squads vault post-test (so a single-key compromise can't
-    //    swap the hook program at runtime). Setting the extension MUST
-    //    happen BEFORE InitializeMint or Token-2022 rejects it (per the
-    //    Token-2022 spec: extensions are configured pre-init).
+    //    program ID. Production deployments should rotate this authority
+    //    to their configured governance or multisig authority so a
+    //    single-key compromise cannot swap the hook program at runtime.
+    //    Setting the extension MUST happen BEFORE InitializeMint or
+    //    Token-2022 rejects it (per the Token-2022 spec: extensions are
+    //    configured pre-init).
     createInitializeTransferHookInstruction(
       mintKp.publicKey,
-      operator.publicKey, // extension authority — rotated to Ops Guardian post-test (runbook)
+      operator.publicKey, // extension authority — rotate to governance after setup
       COMPLIANCE_HOOK, // hook program — compliance-hook
       TOKEN_2022_PROGRAM_ID,
     ),
@@ -342,7 +343,7 @@ async function main() {
     initialize_extra_account_meta_list_tx: initEamlSig,
     authority_transfer_tx: authoritySig,
     pending_runbook_steps: [
-      "Rotate TransferHook extension authority from operator to Ops Guardian Squads vault (deployment runbook)",
+      "Rotate TransferHook extension authority from operator to the deployment's governance or multisig authority",
     ],
     fully_wired: true,
   };

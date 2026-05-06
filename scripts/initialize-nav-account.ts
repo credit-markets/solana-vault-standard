@@ -12,18 +12,17 @@
  *     init_pool must have run for this pool already; without it the
  *     PDA seed derivation works but downstream SVS-11 reads will fail)
  *   * The publisher keypair (separate from operator) is generated and
- *     persisted somewhere safe (e.g. ~/.config/credit-markets/devnet-publisher.json)
- *   * The rotation authority is decided — for production this is the
- *     Protocol Guardian Squads vault. For pre-Squads-vault devnet
- *     testing, you can pass the operator pubkey as a temporary
- *     placeholder and rotate later via `rotate_publisher` once the
- *     vault is deployed.
+ *     persisted somewhere safe.
+ *   * The rotation authority is decided. Production deployments should
+ *     use a governance or multisig authority; test deployments can pass
+ *     the operator pubkey as a temporary placeholder and rotate later
+ *     via `rotate_publisher`.
  *
  * Usage:
  *   npx ts-node scripts/initialize-nav-account.ts \
  *     --pool <CreditVault-PDA> \
  *     --publisher <PUBLISHER-PUBKEY> \
- *     --rotation-authority <PROTOCOL-GUARDIAN-PDA-or-temp-pubkey> \
+ *     --rotation-authority <GOVERNANCE-or-temp-pubkey> \
  *     [--cluster devnet]
  *
  * Required env:
