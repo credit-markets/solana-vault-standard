@@ -19,6 +19,12 @@ import {
   getClaimableTokensAddress,
   getCreditFrozenAccountAddress,
 } from "./credit-vault-pda";
+import {
+  COMPLIANCE_HOOK_PROGRAM_ID,
+  getExtraAccountMetaListAddress,
+  getMintConfigAddress,
+} from "./compliance-hook-pda";
+import { ComplianceMode } from "./compliance-hook";
 import { getTokenProgramForMint } from "./vault";
 
 export interface CreditVaultState {
@@ -61,6 +67,46 @@ export interface CreateCreditVaultParams {
   attestationProgram: PublicKey;
   minimumInvestment: BN;
   maxStaleness: BN;
+}
+
+/**
+ * Args for {@link CreditVault.bootstrapSharesCompliance}. Mirror of the
+ * on-chain `BootstrapSharesComplianceArgs` shape (svs-11
+ * `instructions/bootstrap_shares_compliance.rs`), with optional defaults
+ * applied for FreelyTransferable callers.
+ *
+ * Trust-anchor invariants enforced by compliance-hook on the inner CPI:
+ *   - `attestationProgram` and `attestationIssuer` MUST NOT be the
+ *     default pubkey when `mode == permissioned`.
+ *   - `poolPolicy` MUST be `Some` when `mode == permissioned` and `None`
+ *     when `mode == freelyTransferable`.
+ *
+ * For `Permissioned` deployments the operator must ALSO issue a
+ * system-attestation for the vault PDA (subject = `vault.key()`) via
+ * the configured `attestationProgram` — the cPOOL hook validates BOTH
+ * transfer owners on every redemption transfer, and
+ * `redemption_escrow.owner == vault`.
+ */
+export interface BootstrapSharesComplianceParams {
+  /** Compliance mode for the cPOOL shares mint. */
+  mode: ComplianceMode;
+  /** Required for `permissioned`; must be `null` for `freelyTransferable`. */
+  poolPolicy?: PublicKey | null;
+  /**
+   * Program owning acceptable attestation accounts. Required (non-default)
+   * for `permissioned`. Defaults to `PublicKey.default` for
+   * `freelyTransferable`.
+   */
+  attestationProgram?: PublicKey;
+  /**
+   * Expected `issuer` field on attestation payloads. Required (non-default)
+   * for `permissioned`.
+   */
+  attestationIssuer?: PublicKey;
+  /**
+   * Required `attestation_type` byte. Defaults to 0 (generic KYC tier).
+   */
+  requiredAttestationType?: number;
 }
 
 export interface InvestmentRequestState {
@@ -227,6 +273,63 @@ export class CreditVault {
       .rpc();
 
     return CreditVault.load(program, params.assetMint, id);
+  }
+
+  /**
+   * Bootstrap the compliance-hook PDAs (`MintConfig` +
+   * `ExtraAccountMetaList`) for the cPOOL shares mint.
+   *
+   * MUST be called after {@link CreditVault.create} and before any
+   * cPOOL transfer (request_redeem / cancel_redeem) can succeed —
+   * `initialize_pool` binds the TransferHook extension on cPOOL but
+   * intentionally does NOT initialize the dependent compliance-hook
+   * PDAs (the vault PDA is the cPOOL mint authority and PDAs cannot
+   * top-level-sign for compliance-hook's `Signer == mint_authority`
+   * constraint). The on-chain `bootstrap_shares_compliance` ix CPIs
+   * into compliance-hook with `vault_seeds`, satisfying that
+   * constraint via Anchor's `invoke_signed`.
+   *
+   * For `mode == permissioned`, the caller must ALSO issue a system
+   * attestation for the vault PDA via the configured attestation
+   * program (subject = `vault.key()`); without it, the destination-
+   * side attestation check on `request_redeem`'s cPOOL transfer
+   * rejects with `AttestationNotFound` (`redemption_escrow.owner ==
+   * vault`).
+   *
+   * Idempotency: the underlying compliance-hook init handlers use
+   * Anchor's `init` constraint, which fails with "account already in
+   * use" on re-invocation. Operators should call this exactly once
+   * per pool.
+   */
+  async bootstrapSharesCompliance(
+    authority: PublicKey,
+    params: BootstrapSharesComplianceParams,
+  ): Promise<string> {
+    const [mintConfig] = getMintConfigAddress(this.sharesMint);
+    const [extraAccountMetaList] = getExtraAccountMetaListAddress(
+      this.sharesMint,
+    );
+    return this.program.methods
+      .bootstrapSharesCompliance({
+        mode: params.mode,
+        poolPolicy: params.poolPolicy ?? null,
+        attestationProgram:
+          params.attestationProgram ?? PublicKey.default,
+        attestationIssuer:
+          params.attestationIssuer ?? PublicKey.default,
+        requiredAttestationType: params.requiredAttestationType ?? 0,
+      })
+      .accountsPartial({
+        authority,
+        vault: this.vault,
+        sharesMint: this.sharesMint,
+        mintConfig,
+        extraAccountMetaList,
+        complianceHookProgram: COMPLIANCE_HOOK_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
   }
 
   async refresh(): Promise<CreditVaultState> {
@@ -536,7 +639,20 @@ export class CreditVault {
       .rpc();
   }
 
-  async cancelRedeem(investor: PublicKey): Promise<string> {
+  async cancelRedeem(
+    investor: PublicKey,
+    /// Token-2022 TransferHook extras for the cPOOL `transfer_checked`
+    /// CPI (direction: source = vault PDA, destination = investor —
+    /// opposite of `request_redeem`). Required when the cPOOL mint has
+    /// an active TransferHook extension; the on-chain handler extends
+    /// its inner ix with `add_extra_accounts_for_execute_cpi` from
+    /// these. Omit only for cPOOL mints without a hook bound (legacy
+    /// pre-iteration-2 deployments) — modern svs-11 deployments ALWAYS
+    /// bind compliance-hook on cPOOL via `initialize_pool`, so callers
+    /// should always pass the resolved extras for the
+    /// `(source = vault, destination = investor)` direction.
+    remainingAccounts?: AccountMeta[],
+  ): Promise<string> {
     const [redemptionRequest] = getRedemptionRequestAddress(
       this.program.programId,
       this.vault,
@@ -544,7 +660,7 @@ export class CreditVault {
     );
     const investorSharesAccount = this.getInvestorSharesAccount(investor);
 
-    return this.program.methods
+    const builder = this.program.methods
       .cancelRedeem()
       .accountsPartial({
         investor,
@@ -555,8 +671,12 @@ export class CreditVault {
         redemptionEscrow: this.redemptionEscrow,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+      });
+
+    return (remainingAccounts?.length
+      ? builder.remainingAccounts(remainingAccounts)
+      : builder
+    ).rpc();
   }
 
   // ============ Manager Operations ============

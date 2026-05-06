@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { registerBootstrapSharesComplianceCommand } from "./bootstrap-shares-compliance";
 import { registerRequestDepositCommand } from "./request-deposit";
 import { registerApproveDepositCommand } from "./approve-deposit";
 import { registerClaimDepositCommand } from "./claim-deposit";
@@ -16,6 +17,12 @@ import { registerInvestmentWindowCommand } from "./investment-window";
 import { registerSetOracleSourceCommand } from "./set-oracle-source";
 
 export function registerCreditCommands(program: Command): void {
+  // Pool setup (operator runbook). bootstrap-shares-compliance runs
+  // ONCE per pool, after `credit init` (initialize_pool), to wire up
+  // the cPOOL hook PDAs. Listed first to mirror the operator workflow
+  // order in `docs/SVS-11.md::Pool Setup`.
+  registerBootstrapSharesComplianceCommand(program);
+
   registerRequestDepositCommand(program);
   registerApproveDepositCommand(program);
   registerClaimDepositCommand(program);
