@@ -40,8 +40,9 @@ impl NavAccount {
     pub const SEED_PREFIX: &'static [u8] = b"nav_oracle";
     pub const SPACE: usize = 8 + 8 + 8 + 8 + 32 + 8 + 2 + 2 + 1 + 7 + 32 + 64 + 32 + 8 + 2;
 
-    /// Canonical 133-byte signing payload. Matches Python publisher
-    /// `build_signing_payload` byte-for-byte. Padding excluded.
+    /// Canonical 133-byte signing payload. Matches the TypeScript
+    /// `buildSigningPayload` (sdk/core/src/nav-oracle.ts) byte-for-byte.
+    /// Padding excluded.
     pub fn signing_payload(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(133);
         buf.extend_from_slice(self.pool.as_ref());
