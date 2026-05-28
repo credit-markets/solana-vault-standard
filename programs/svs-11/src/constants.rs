@@ -14,9 +14,9 @@ pub const DEFAULT_MAX_DEVIATION_BPS: u16 = 500;
 pub const MAX_DEVIATION_BPS_CAP: u16 = 2000;
 pub const ORACLE_TIMELOCK: i64 = 86400; // 24 hours
 
-/// Default per-pool maximum NAV staleness (45 days = 3,888,000 sec).
-/// Written to CreditVault.max_nav_staleness_secs at initialize_pool
-/// time; admin can update via update_oracle_params later.
+/// Default per-pool maximum oracle staleness (45 days = 3,888,000 sec) and
+/// the ceiling enforced by `update_oracle_params`. Callers pass the desired
+/// window into `initialize_pool` (stored as `CreditVault.max_staleness`).
 pub const DEFAULT_MAX_NAV_STALENESS_SECS: i64 = 3_888_000;
 
 // =============================================================================

@@ -11,7 +11,7 @@ pub enum NavOracleError {
     #[msg("Self-consistency check failed: nav_net != nav_gross × (1 − ter − loss)")]
     InconsistentNav = 7002,
 
-    #[msg("Publisher rotation requires the configured key_rotation_authority signer")]
+    #[msg("Publisher rotation requires the pool's live CreditVault.authority as signer")]
     UnauthorizedRotation = 7003,
 
     #[msg("Caller is not the registered publisher for this NavAccount")]

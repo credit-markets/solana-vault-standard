@@ -99,9 +99,9 @@ pub fn handler(ctx: Context<ApproveDeposit>) -> Result<()> {
         svs_oracle::validate_deviation(price, expected_price_u128 as u64, vault.max_deviation_bps)
             .map_err(|_| VaultError::OracleDeviationExceeded)?;
     }
-    // Oracle price validity (staleness, positive price) is always enforced by
-    // read_and_validate_oracle above, even on the first deposit when there is no
-    // on-chain expected price to compare against.
+    // Oracle price validity (staleness, positive price, sequence) is always
+    // enforced by the generic svs_oracle::read_oracle above, even on the first
+    // deposit when there is no on-chain expected price to compare against.
 
     let amount_locked = ctx.accounts.investment_request.amount_locked;
     let shares = math::assets_to_shares(amount_locked, price)?;
