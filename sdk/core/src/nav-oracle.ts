@@ -23,19 +23,20 @@ import { NAV_ORACLE_PROGRAM_ID, getNavAccountAddress } from "./nav-oracle-pda";
  * meaning and is set to zero by the program.
  */
 export interface NavAccountState {
-  pool: PublicKey;
   navNet: BN;
+  timestamp: BN;
+  sequence: BN;
+  pool: PublicKey;
   navGross: BN;
   terBps: number;
   lossProvisionBps: number;
   navType: number;
   padding: number[];
-  timestamp: BN;
-  sequence: BN;
   publisher: PublicKey;
   signature: number[];
   loanTapeMerkleRoot: number[];
-  keyRotationAuthority: PublicKey;
+  lastPublishedNav: BN;
+  maxDeviationBps: number;
 }
 
 /**
@@ -61,11 +62,11 @@ export interface UpdateNavParams {
 export interface InitializeNavAccountParams {
   pool: PublicKey;
   publisher: PublicKey;
-  keyRotationAuthority: PublicKey;
   /**
    * Must equal `CreditVault.authority` of the pool (bytes 8..40 of the
    * pool account data). Nav-oracle's `initialize` verifies the signer
-   * to gate per-pool init against squat-race attacks.
+   * to gate per-pool init against squat-race attacks. This same authority
+   * also gates publisher rotation (D6: unified with CreditVault.authority).
    */
   poolAuthority: PublicKey;
   /**
@@ -220,7 +221,6 @@ export class NavOracle {
         navAccount,
         poolAuthority: params.poolAuthority,
         publisher: params.publisher,
-        keyRotationAuthority: params.keyRotationAuthority,
         payer,
         systemProgram: SystemProgram.programId,
       })
@@ -431,14 +431,13 @@ export class NavOracle {
   }
 
   /**
-   * Rotate the publisher pubkey on a NavAccount. Caller-provided
-   * `rotationAuthority` MUST be the signer that controls the
-   * `key_rotation_authority` recorded in the account (typically a
-   * governance or multisig authority's vault PDA).
+   * Rotate the publisher pubkey on a NavAccount. The signer MUST be the live
+   * `CreditVault.authority` of the pool (D6: rotation authority unified with
+   * the pool authority; read on-chain from pool bytes 8..40).
    */
   static async rotatePublisher(
     program: Program,
-    rotationAuthority: PublicKey,
+    authority: PublicKey,
     params: { pool: PublicKey; newPublisher: PublicKey },
   ): Promise<string> {
     const [navAccount] = getNavAccountAddress(params.pool, program.programId);
@@ -448,7 +447,7 @@ export class NavOracle {
       .accountsPartial({
         pool: params.pool,
         navAccount,
-        keyRotationAuthority: rotationAuthority,
+        authority,
         newPublisher: params.newPublisher,
       })
       .rpc();

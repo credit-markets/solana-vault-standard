@@ -50,19 +50,20 @@ describe("SDK Nav Oracle Module", () => {
   describe("NavAccountState interface", () => {
     it("compiles with the expected field shape", () => {
       const state: NavAccountState = {
-        pool: POOL,
         navNet: new BN("1000000000"),
+        timestamp: new BN(1_700_000_000),
+        sequence: new BN(1),
+        pool: POOL,
         navGross: new BN("1010000000"),
         terBps: 50,
         lossProvisionBps: 25,
         navType: 0,
         padding: [0, 0, 0, 0, 0, 0, 0],
-        timestamp: new BN(1_700_000_000),
-        sequence: new BN(1),
         publisher: PUBLISHER,
         signature: new Array(64).fill(0),
         loanTapeMerkleRoot: new Array(32).fill(0),
-        keyRotationAuthority: KEY_ROTATION,
+        lastPublishedNav: new BN("1000000000"),
+        maxDeviationBps: 500,
       };
 
       expect(state.pool).to.be.instanceOf(PublicKey);
@@ -77,7 +78,8 @@ describe("SDK Nav Oracle Module", () => {
       expect(state.publisher).to.be.instanceOf(PublicKey);
       expect(state.signature).to.have.length(64);
       expect(state.loanTapeMerkleRoot).to.have.length(32);
-      expect(state.keyRotationAuthority).to.be.instanceOf(PublicKey);
+      expect(state.lastPublishedNav).to.be.instanceOf(BN);
+      expect(state.maxDeviationBps).to.be.a("number");
     });
   });
 
@@ -108,16 +110,18 @@ describe("SDK Nav Oracle Module", () => {
   });
 
   describe("InitializeNavAccountParams interface", () => {
-    it("compiles with pool, publisher, keyRotationAuthority", () => {
+    it("compiles with pool, publisher, poolAuthority, maxDeviationBps", () => {
       const params: InitializeNavAccountParams = {
         pool: POOL,
         publisher: PUBLISHER,
-        keyRotationAuthority: KEY_ROTATION,
+        poolAuthority: KEY_ROTATION,
+        maxDeviationBps: 500,
       };
 
       expect(params.pool).to.be.instanceOf(PublicKey);
       expect(params.publisher).to.be.instanceOf(PublicKey);
-      expect(params.keyRotationAuthority).to.be.instanceOf(PublicKey);
+      expect(params.poolAuthority).to.be.instanceOf(PublicKey);
+      expect(params.maxDeviationBps).to.equal(500);
     });
   });
 

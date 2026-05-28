@@ -97,7 +97,6 @@ pub fn handler(ctx: Context<UpdateNav>, args: UpdateArgs) -> Result<()> {
             // Not part of signing_payload(); placeholders only.
             last_published_nav: 0,
             max_deviation_bps: 0,
-            key_rotation_authority: nav.key_rotation_authority,
         };
         staged_for_payload.signing_payload()
     };
@@ -136,7 +135,6 @@ pub fn handler(ctx: Context<UpdateNav>, args: UpdateArgs) -> Result<()> {
         last_published_nav: args.nav_net,
         // Preserve the init-only configured ceiling (never publisher-attested).
         max_deviation_bps: nav.max_deviation_bps,
-        key_rotation_authority: nav.key_rotation_authority,
     };
     require!(
         staged.verify_self_consistency(),

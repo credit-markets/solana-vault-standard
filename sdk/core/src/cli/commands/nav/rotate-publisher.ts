@@ -15,7 +15,7 @@ export function registerRotatePublisherCommand(parent: Command): void {
   parent
     .command("rotate-publisher")
     .description(
-      "Rotate the publisher pubkey on a NavAccount (caller must be key_rotation_authority)",
+      "Rotate the publisher pubkey on a NavAccount (caller must be the pool's CreditVault.authority)",
     )
     .argument("<pool>", "Pool PDA (CreditVault address)")
     .requiredOption("--new-publisher <pubkey>", "New publisher pubkey")
@@ -54,7 +54,7 @@ export function registerRotatePublisherCommand(parent: Command): void {
         output.info(`  NavAccount:         ${navAccount.toBase58()}`);
         output.info(`  New publisher:      ${newPublisher.toBase58()}`);
         output.info(
-          `  Rotation authority: ${wallet.publicKey.toBase58()} (signer)`,
+          `  Pool authority:     ${wallet.publicKey.toBase58()} (signer)`,
         );
 
         if (globalOpts.dryRun) {

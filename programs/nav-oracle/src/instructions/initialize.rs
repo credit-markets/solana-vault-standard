@@ -31,9 +31,6 @@ pub struct InitializeNavAccount<'info> {
     /// CHECK: pubkey stored verbatim.
     pub publisher: UncheckedAccount<'info>,
 
-    /// CHECK: pubkey stored verbatim; gates publisher rotation.
-    pub key_rotation_authority: UncheckedAccount<'info>,
-
     #[account(mut)]
     pub payer: Signer<'info>,
 
@@ -79,7 +76,6 @@ pub fn handler(ctx: Context<InitializeNavAccount>, args: InitializeNavArgs) -> R
     nav.loan_tape_merkle_root = [0u8; 32];
     nav.last_published_nav = 0;
     nav.max_deviation_bps = args.max_deviation_bps;
-    nav.key_rotation_authority = ctx.accounts.key_rotation_authority.key();
 
     Ok(())
 }

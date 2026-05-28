@@ -34,12 +34,11 @@ pub struct NavAccount {
     pub last_published_nav: u64,
     /// Max allowed consecutive-publish deviation, in basis points. Set at init.
     pub max_deviation_bps: u16,
-    pub key_rotation_authority: Pubkey,
 }
 
 impl NavAccount {
     pub const SEED_PREFIX: &'static [u8] = b"nav_oracle";
-    pub const SPACE: usize = 8 + 8 + 8 + 8 + 32 + 8 + 2 + 2 + 1 + 7 + 32 + 64 + 32 + 8 + 2 + 32;
+    pub const SPACE: usize = 8 + 8 + 8 + 8 + 32 + 8 + 2 + 2 + 1 + 7 + 32 + 64 + 32 + 8 + 2;
 
     /// Canonical 133-byte signing payload. Matches Python publisher
     /// `build_signing_payload` byte-for-byte. Padding excluded.
@@ -112,7 +111,6 @@ mod layout_tests {
             loan_tape_merkle_root: [0u8; 32],
             last_published_nav: 0,
             max_deviation_bps: 500,
-            key_rotation_authority: Pubkey::new_unique(),
         };
         let bytes = nav.try_to_vec().expect("serialize");
         assert_eq!(

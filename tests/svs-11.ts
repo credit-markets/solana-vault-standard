@@ -449,7 +449,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           pool: vault,
           navAccount,
           publisher: navPublisher.publicKey,
-          keyRotationAuthority: payer.publicKey,
           payer: payer.publicKey,
         })
         .rpc();
@@ -3683,6 +3682,51 @@ describe("svs-11 (Credit Markets Vault)", () => {
         })
         .signers([payer])
         .rpc();
+    });
+  });
+
+  describe("NavOracle publisher rotation (D6: unified authority)", () => {
+    // rotate_publisher reads the pool's live CreditVault.authority (payer)
+    // from pool bytes 8..40; key_rotation_authority is gone. The NavAccount
+    // here was initialized in setup against this real vault.
+    it("rejects rotation by a non-authority signer", async () => {
+      const newPublisher = Keypair.generate();
+      try {
+        await navOracleProgram.methods
+          .rotatePublisher()
+          .accountsPartial({
+            pool: vault,
+            navAccount,
+            authority: manager.publicKey,
+            newPublisher: newPublisher.publicKey,
+          })
+          .signers([manager])
+          .rpc();
+        expect.fail("should have thrown");
+      } catch (err: any) {
+        const msg =
+          (err?.logs?.join("\n") ?? "") + "\n" + (err?.message ?? "");
+        expect(msg).to.match(/UnauthorizedRotation|7003/i);
+      }
+    });
+
+    it("rotates the publisher when signed by the live CreditVault.authority", async () => {
+      const newPublisher = Keypair.generate();
+      await navOracleProgram.methods
+        .rotatePublisher()
+        .accountsPartial({
+          pool: vault,
+          navAccount,
+          authority: payer.publicKey,
+          newPublisher: newPublisher.publicKey,
+        })
+        .signers([payer])
+        .rpc();
+
+      const nav = await navOracleProgram.account.navAccount.fetch(navAccount);
+      expect(nav.publisher.toBase58()).to.equal(
+        newPublisher.publicKey.toBase58(),
+      );
     });
   });
 });
