@@ -52,7 +52,8 @@ export function registerSetOracleSourceCommand(program: Command): void {
           resolved.vaultId,
         );
 
-        const sourceLabel = sourceNum === 0 ? "simple/mock" : "NavOracle adapter";
+        const sourceLabel =
+          sourceNum === 0 ? "simple/mock" : "NavOracle adapter";
         output.info(`Vault:  ${vaultArg}`);
         output.info(`Source: ${sourceNum} (${sourceLabel})`);
 

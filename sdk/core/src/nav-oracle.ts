@@ -11,10 +11,7 @@ import {
 } from "@solana/web3.js";
 import * as nacl from "tweetnacl";
 
-import {
-  NAV_ORACLE_PROGRAM_ID,
-  getNavAccountAddress,
-} from "./nav-oracle-pda";
+import { NAV_ORACLE_PROGRAM_ID, getNavAccountAddress } from "./nav-oracle-pda";
 
 /**
  * On-chain `NavAccount` state. Mirrors the Rust struct in
@@ -141,9 +138,7 @@ function toBigIntI64(v: bigint | BN): bigint {
   return BigInt(v.toString());
 }
 
-function toMerkleRootBuffer(
-  v: Uint8Array | Buffer | number[],
-): Buffer {
+function toMerkleRootBuffer(v: Uint8Array | Buffer | number[]): Buffer {
   const buf = Buffer.isBuffer(v) ? v : Buffer.from(v as Uint8Array | number[]);
   if (buf.length !== 32) {
     throw new Error(
@@ -239,10 +234,7 @@ export class NavOracle {
     program: Program,
     params: { pool: PublicKey; args: UpdateNavParams },
   ): Promise<TransactionInstruction> {
-    const [navAccount] = getNavAccountAddress(
-      params.pool,
-      program.programId,
-    );
+    const [navAccount] = getNavAccountAddress(params.pool, program.programId);
 
     const signatureBytes = Array.from(
       params.args.signature instanceof Uint8Array
@@ -367,10 +359,7 @@ export class NavOracle {
     },
   ): Promise<string> {
     const provider = program.provider as AnchorProvider;
-    const [navAccount] = getNavAccountAddress(
-      params.pool,
-      program.programId,
-    );
+    const [navAccount] = getNavAccountAddress(params.pool, program.programId);
 
     // Fetch the NavAccount to learn the current publisher.
     const state = await NavOracle.fetchNavAccount(program, navAccount);
@@ -447,10 +436,7 @@ export class NavOracle {
     rotationAuthority: PublicKey,
     params: { pool: PublicKey; newPublisher: PublicKey },
   ): Promise<string> {
-    const [navAccount] = getNavAccountAddress(
-      params.pool,
-      program.programId,
-    );
+    const [navAccount] = getNavAccountAddress(params.pool, program.programId);
 
     return program.methods
       .rotatePublisher()

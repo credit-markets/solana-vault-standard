@@ -53,7 +53,9 @@ export function registerRotatePublisherCommand(parent: Command): void {
         output.info(`  Pool:               ${pool.toBase58()}`);
         output.info(`  NavAccount:         ${navAccount.toBase58()}`);
         output.info(`  New publisher:      ${newPublisher.toBase58()}`);
-        output.info(`  Rotation authority: ${wallet.publicKey.toBase58()} (signer)`);
+        output.info(
+          `  Rotation authority: ${wallet.publicKey.toBase58()} (signer)`,
+        );
 
         if (globalOpts.dryRun) {
           output.success("Dry run complete. No transaction sent.");
@@ -71,11 +73,10 @@ export function registerRotatePublisherCommand(parent: Command): void {
         const spinner = output.spinner("Rotating publisher...");
         spinner.start();
 
-        const sig = await NavOracle.rotatePublisher(
-          prog,
-          wallet.publicKey,
-          { pool, newPublisher },
-        );
+        const sig = await NavOracle.rotatePublisher(prog, wallet.publicKey, {
+          pool,
+          newPublisher,
+        });
 
         spinner.succeed("Publisher rotated");
         output.success(`Tx: ${sig}`);
