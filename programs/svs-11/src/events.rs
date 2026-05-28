@@ -191,13 +191,6 @@ pub struct OracleChangeApplied {
 }
 
 #[event]
-pub struct OracleSourceChanged {
-    pub vault: Pubkey,
-    pub old_source: u8,
-    pub new_source: u8,
-}
-
-#[event]
 pub struct VaultConfigInitialized {
     pub vault: Pubkey,
     pub vault_config: Pubkey,

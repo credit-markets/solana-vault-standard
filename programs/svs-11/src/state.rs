@@ -56,46 +56,24 @@ pub struct CreditVault {
     pub _reserved: [u8; 23],
 
     // =========================================================================
-    // Oracle extensibility fields
+    // Pluggable oracle interface (D4)
     // =========================================================================
     //
-    // SVS-11 keeps the simple oracle path as the neutral upstream default.
-    // Deployments that need richer credit-market NAV semantics can opt into
-    // the NavOracle adapter via `oracle_source = 1`. This is bounded
-    // extensibility (simple oracle + known NavOracle add-on), not an
-    // arbitrary plugin registry. Credit Markets deployments use the richer
-    // adapter as deployment policy, not as a requirement imposed on every
-    // upstream SVS-11 user.
-    /// Last `NavAccount.sequence` the vault has consumed. Updated atomically by
-    /// approve_deposit + approve_redeem after a successful NavOracle read.
-    /// 0 on initialize_pool means "no sequence consumed yet".
+    // SVS-11 reads any SVS-compliant oracle through the generic 24-byte
+    // `SvsOraclePrice` header (see `modules/svs-oracle`). The configured oracle
+    // account address (`nav_oracle`) and its owner program (`oracle_program`)
+    // identify which oracle the vault trusts; the vault enforces only generic
+    // invariants (positive price, staleness, sequence monotonicity). Per-oracle
+    // integrity (e.g. consecutive-price deviation) lives in the oracle program.
+    /// Last oracle `sequence` the vault has consumed. Updated atomically by
+    /// approve_deposit + approve_redeem after a successful oracle read.
+    /// 0 on initialize_pool means "no sequence consumed yet". A sentinel
+    /// `sequence == 0` from the oracle skips the monotonicity check.
     pub last_seen_nav_sequence: u64,
 
-    /// Last `NavAccount.nav_net` the vault read. Used by the deviation guard so
-    /// we don't accept a NAV that jumps more than `max_deviation_bps` from the
-    /// prior reading. 0 on initialize_pool — first NavOracle read accepts any
-    /// value and bootstraps the deviation baseline.
-    pub last_seen_nav_price: u64,
-
-    /// Per-pool maximum NAV staleness (seconds). Default 45 days =
-    /// 3,888,000 sec (`DEFAULT_MAX_NAV_STALENESS_SECS`). NAV reads older
-    /// than this trip `OracleStale` and block approve_deposit/approve_redeem.
-    pub max_nav_staleness_secs: i64,
-
-    /// Oracle source selector.
-    ///   0 = simple/mock oracle path (neutral upstream default)
-    ///   1 = nav_oracle adapter (optional rich credit-market NAV path)
-    ///   2..255 = reserved → `OracleSourceInvalid`
-    ///
-    /// `initialize_pool` sets this to 0. Deployments that require rich NAV
-    /// semantics call `set_oracle_source(1)` after initializing and publishing
-    /// the pool's NavAccount.
-    pub oracle_source: u8,
-
-    /// Padding so the SPACE bump is a clean multiple of 8 (alignment friendliness).
-    /// Total bump for the four fields above + this padding is exactly
-    /// `8 + 8 + 8 + 1 + 7 = 32` bytes.
-    pub _padding_oracle: [u8; 7],
+    /// Padding so the trailing block stays a clean multiple of 8. Reclaims the
+    /// bytes freed by removing the legacy oracle-selector fields.
+    pub _padding_oracle: [u8; 24],
 }
 
 impl CreditVault {
@@ -126,12 +104,9 @@ impl CreditVault {
         8 +   // total_pending_redeems
         1 +   // required_attestation_type
         23 +  // _reserved
-        // ---- NavOracle integration (+32 bytes) ----
+        // ---- pluggable oracle interface (+32 bytes) ----
         8 +   // last_seen_nav_sequence
-        8 +   // last_seen_nav_price
-        8 +   // max_nav_staleness_secs
-        1 +   // oracle_source
-        7; // _padding_oracle
+        24; // _padding_oracle
 
     /// Audit-friendly alias matching the spec language. Identical to `LEN`.
     pub const SPACE: usize = Self::LEN;
@@ -182,10 +157,7 @@ mod credit_vault_layout_tests {
             required_attestation_type: 0,
             _reserved: [0u8; 23],
             last_seen_nav_sequence: 0,
-            last_seen_nav_price: 0,
-            max_nav_staleness_secs: 0,
-            oracle_source: 0,
-            _padding_oracle: [0u8; 7],
+            _padding_oracle: [0u8; 24],
         };
         let bytes = cv.try_to_vec().expect("serialize");
         assert_eq!(
@@ -290,20 +262,22 @@ impl RedemptionRequest {
 
 #[account]
 pub struct VaultConfig {
-    pub vault: Pubkey,          // 32
-    pub pending_oracle: Pubkey, // 32 - proposed new oracle
-    pub oracle_change_at: i64,  // 8  - when the change can be applied
-    pub bump: u8,               // 1
-    pub _reserved: [u8; 63],    // future use (reclaims the freed compliance_officer bytes)
+    pub vault: Pubkey,                  // 32
+    pub pending_oracle: Pubkey,         // 32 - proposed new oracle account
+    pub pending_oracle_program: Pubkey, // 32 - proposed new oracle owner program
+    pub oracle_change_at: i64,          // 8  - when the change can be applied
+    pub bump: u8,                       // 1
+    pub _reserved: [u8; 31],            // future use
 }
 
 impl VaultConfig {
     pub const LEN: usize = 8 + // discriminator
         32 +  // vault
         32 +  // pending_oracle
+        32 +  // pending_oracle_program
         8 +   // oracle_change_at
         1 +   // bump
-        63; // _reserved
+        31; // _reserved
 
     pub const SEED_PREFIX: &'static [u8] = VAULT_CONFIG_SEED;
 }

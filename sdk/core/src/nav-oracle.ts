@@ -68,6 +68,11 @@ export interface InitializeNavAccountParams {
    * to gate per-pool init against squat-race attacks.
    */
   poolAuthority: PublicKey;
+  /**
+   * Max allowed consecutive-publish deviation, in basis points. Must be > 0
+   * (the on-chain handler rejects 0). Defaults to 500 (5%).
+   */
+  maxDeviationBps?: number;
 }
 
 /**
@@ -209,7 +214,7 @@ export class NavOracle {
     const [navAccount] = getNavAccountAddress(params.pool, program.programId);
 
     const signature = await program.methods
-      .initialize()
+      .initialize({ maxDeviationBps: params.maxDeviationBps ?? 500 })
       .accountsPartial({
         pool: params.pool,
         navAccount,

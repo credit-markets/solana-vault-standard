@@ -312,24 +312,20 @@ pub fn handler(
     vault.required_attestation_type = 0;
     vault._reserved = [0u8; 23];
 
-    // NavOracle integration defaults.
-    //
-    // Upstream SVS-11 keeps the simple/mock oracle path as the neutral
-    // default. Deployments that need rich credit-market NAV semantics
-    // initialize + publish a NavAccount, then call `set_oracle_source(1)`
-    // before opening the investment window.
+    // Pluggable-oracle defaults. The vault reads `nav_oracle` (the configured
+    // oracle account) through the generic SvsOraclePrice header; any
+    // compliant oracle (mock-oracle, nav-oracle, third-party) works. The
+    // address + owner program are set above and rotated via the timelock.
     vault.last_seen_nav_sequence = 0;
-    vault.last_seen_nav_price = 0;
-    vault.max_nav_staleness_secs = crate::constants::DEFAULT_MAX_NAV_STALENESS_SECS;
-    vault.oracle_source = crate::constants::ORACLE_SOURCE_MOCK;
-    vault._padding_oracle = [0u8; 7];
+    vault._padding_oracle = [0u8; 24];
 
     msg!(
         "initialize_pool COMPLETE | shares_mint={} hook={} | NEXT STEP (deployment runbook): \
-         init MintConfig + EAML + infrastructure attestations. Rich NAV deployments \
-         must initialize + publish NavAccount, then set_oracle_source(1)",
+         init MintConfig + EAML + infrastructure attestations. Publish the configured \
+         oracle account ({}) before opening the investment window.",
         ctx.accounts.shares_mint.key(),
         COMPLIANCE_HOOK_PROGRAM_ID,
+        ctx.accounts.nav_oracle.key(),
     );
 
     emit!(VaultInitialized {

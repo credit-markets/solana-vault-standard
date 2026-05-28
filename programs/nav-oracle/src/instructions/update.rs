@@ -82,18 +82,21 @@ pub fn handler(ctx: Context<UpdateNav>, args: UpdateArgs) -> Result<()> {
     // Canonical signing payload (signature zeroed: it's produced AFTER signing).
     let expected_payload = {
         let staged_for_payload = NavAccount {
-            pool: nav.pool,
             nav_net: args.nav_net,
+            timestamp: args.timestamp,
+            sequence: args.sequence,
+            pool: nav.pool,
             nav_gross: args.nav_gross,
             ter_bps: args.ter_bps,
             loss_provision_bps: args.loss_bps,
             nav_type: args.nav_type,
             _padding: [0u8; 7],
-            timestamp: args.timestamp,
-            sequence: args.sequence,
             publisher: nav.publisher,
             signature: [0u8; 64],
             loan_tape_merkle_root: args.loan_tape_merkle_root,
+            // Not part of signing_payload(); placeholders only.
+            last_published_nav: 0,
+            max_deviation_bps: 0,
             key_rotation_authority: nav.key_rotation_authority,
         };
         staged_for_payload.signing_payload()
@@ -109,19 +112,30 @@ pub fn handler(ctx: Context<UpdateNav>, args: UpdateArgs) -> Result<()> {
         NavOracleError::InvalidSignature
     );
 
+    // (B) consecutive-price deviation guard. Genesis (last_published_nav == 0)
+    // has no prior value to compare against, so the check is SKIPPED on the
+    // first-ever publish — by design, the first NAV is publisher-trusted.
+    // This is the bound the vault used to enforce; each oracle now self-checks
+    // it (pluggable-oracle integrity lives in the implementation).
+    check_deviation(nav.last_published_nav, args.nav_net, nav.max_deviation_bps)?;
+
     let staged = NavAccount {
-        pool: nav.pool,
         nav_net: args.nav_net,
+        timestamp: args.timestamp,
+        sequence: args.sequence,
+        pool: nav.pool,
         nav_gross: args.nav_gross,
         ter_bps: args.ter_bps,
         loss_provision_bps: args.loss_bps,
         nav_type: args.nav_type,
         _padding: [0u8; 7],
-        timestamp: args.timestamp,
-        sequence: args.sequence,
         publisher: nav.publisher,
         signature: args.signature,
         loan_tape_merkle_root: args.loan_tape_merkle_root,
+        // New baseline, committed atomically with the rest of the state.
+        last_published_nav: args.nav_net,
+        // Preserve the init-only configured ceiling (never publisher-attested).
+        max_deviation_bps: nav.max_deviation_bps,
         key_rotation_authority: nav.key_rotation_authority,
     };
     require!(
@@ -193,6 +207,25 @@ fn verify_ed25519_ix_strict(
         && &ix_data[msg_offset..msg_offset + msg_size] == expected_msg
 }
 
+/// Pure consecutive-price deviation check. `last == 0` (genesis) always
+/// passes — there is no prior value to bound against. Uses checked arithmetic
+/// throughout so it is panic-free and unit-testable outside the gated handler.
+pub fn check_deviation(last: u64, new: u64, max_bps: u16) -> Result<()> {
+    if last == 0 {
+        return Ok(());
+    }
+    let diff = new.abs_diff(last);
+    let deviation_bps = diff
+        .checked_mul(10_000)
+        .and_then(|v| v.checked_div(last))
+        .ok_or(error!(NavOracleError::DeviationExceeded))?;
+    require!(
+        deviation_bps <= max_bps as u64,
+        NavOracleError::DeviationExceeded
+    );
+    Ok(())
+}
+
 #[event]
 pub struct NavUpdated {
     pub pool: Pubkey,
@@ -205,4 +238,26 @@ pub struct NavUpdated {
     pub sequence: u64,
     pub publisher: Pubkey,
     pub loan_tape_merkle_root: [u8; 32],
+}
+
+#[cfg(test)]
+mod deviation_tests {
+    use super::check_deviation;
+
+    #[test]
+    fn rejects_over_deviation() {
+        // 100% jump against a 5% ceiling.
+        assert!(check_deviation(1_000_000_000, 2_000_000_000, 500).is_err());
+    }
+
+    #[test]
+    fn accepts_within_bound() {
+        // 4% jump under a 5% ceiling.
+        assert!(check_deviation(1_000_000_000, 1_040_000_000, 500).is_ok());
+    }
+
+    #[test]
+    fn genesis_accepts_any_magnitude() {
+        assert!(check_deviation(0, u64::MAX, 1).is_ok());
+    }
 }

@@ -1,14 +1,10 @@
 use anchor_lang::prelude::*;
 
 use crate::attestation::validate_attestation;
-use crate::constants::{
-    INVESTMENT_REQUEST_SEED, NAV_ORACLE_PROGRAM_ID, NAV_ORACLE_SEED, ORACLE_SOURCE_MOCK,
-    ORACLE_SOURCE_NAV_ORACLE, VAULT_SEED,
-};
+use crate::constants::{INVESTMENT_REQUEST_SEED, VAULT_SEED};
 use crate::error::VaultError;
 use crate::events::InvestmentApproved;
 use crate::math;
-use crate::oracle::{read_and_validate_oracle, read_nav_oracle_price, OraclePrice};
 use crate::state::{CreditVault, InvestmentRequest, RequestStatus};
 
 #[cfg(feature = "modules")]
@@ -38,16 +34,10 @@ pub struct ApproveDeposit<'info> {
     #[account(constraint = investor.key() == investment_request.investor)]
     pub investor: SystemAccount<'info>,
 
-    /// CHECK: Oracle account. When `oracle_source == 0` this is the mock
-    /// oracle (read via `read_and_validate_oracle`); when `oracle_source == 1`
-    /// it is unused (the nav-oracle path uses `nav_account` instead).
-    pub nav_oracle: UncheckedAccount<'info>,
-
-    /// CHECK: Manually validated in handler when `oracle_source == 1`.
-    /// No seed constraint here — Anchor evaluates seeds pre-handler, which
-    /// would fail the emergency-revert path where the caller passes a
-    /// dummy account because they have no real NavAccount yet.
-    pub nav_account: UncheckedAccount<'info>,
+    /// CHECK: the configured oracle account. Validated in handler:
+    /// key == vault.nav_oracle, owner == vault.oracle_program, then the
+    /// generic SvsOraclePrice header is read + range-checked.
+    pub oracle_account: UncheckedAccount<'info>,
 
     /// CHECK: Attestation validated in handler via validate_attestation
     pub attestation: UncheckedAccount<'info>,
@@ -69,52 +59,32 @@ pub fn handler(ctx: Context<ApproveDeposit>) -> Result<()> {
         &ctx.accounts.clock,
     )?;
 
-    // Oracle source dispatch. Emergency-revert toggle: governance can flip
-    // to mock if nav-oracle has a bug post-deploy.
-    let oracle_read: OraclePrice = match ctx.accounts.vault.oracle_source {
-        ORACLE_SOURCE_NAV_ORACLE => {
-            let credit_vault_key = ctx.accounts.vault.key();
-            let (expected_nav_pda, _bump) = Pubkey::find_program_address(
-                &[NAV_ORACLE_SEED, credit_vault_key.as_ref()],
-                &NAV_ORACLE_PROGRAM_ID,
-            );
-            require!(
-                ctx.accounts.nav_account.key() == expected_nav_pda,
-                VaultError::OracleAccountInvalid
-            );
-            require!(
-                ctx.accounts.nav_account.owner == &NAV_ORACLE_PROGRAM_ID,
-                VaultError::OracleAccountInvalid
-            );
-
-            let r = read_nav_oracle_price(
-                &ctx.accounts.nav_account.to_account_info(),
-                &credit_vault_key,
-                ctx.accounts.vault.last_seen_nav_sequence,
-                ctx.accounts.vault.max_nav_staleness_secs,
-                ctx.accounts.vault.max_deviation_bps,
-                Some(ctx.accounts.vault.last_seen_nav_price),
-            )?;
-            OraclePrice {
-                price: r.price,
-                sequence: r.sequence,
-            }
-        }
-        ORACLE_SOURCE_MOCK => {
-            let p = read_and_validate_oracle(
-                &ctx.accounts.nav_oracle.to_account_info(),
-                &ctx.accounts.vault,
-                &ctx.accounts.clock,
-            )?;
-            OraclePrice {
-                price: p,
-                sequence: 0,
-            }
-        }
-        _ => return err!(VaultError::OracleSourceInvalid),
+    // Generic pluggable-oracle read. The vault trusts exactly one configured
+    // oracle account (address + owner program); the 24-byte SvsOraclePrice
+    // header is range-checked by the shared svs-oracle reader.
+    require!(
+        ctx.accounts.oracle_account.key() == ctx.accounts.vault.nav_oracle,
+        VaultError::OracleInvalidPrice
+    );
+    require!(
+        ctx.accounts.oracle_account.owner == &ctx.accounts.vault.oracle_program,
+        VaultError::OracleInvalidProgram
+    );
+    let header = {
+        let data = ctx.accounts.oracle_account.try_borrow_data()?;
+        svs_oracle::read_oracle(
+            &data,
+            ctx.accounts.clock.unix_timestamp,
+            ctx.accounts.vault.max_staleness,
+            ctx.accounts.vault.last_seen_nav_sequence,
+        )
+        .map_err(|e| match e {
+            svs_oracle::OracleError::StalePrice => error!(VaultError::OracleStale),
+            svs_oracle::OracleError::SequenceStale => error!(VaultError::OracleSequenceStale),
+            _ => error!(VaultError::OracleInvalidPrice),
+        })?
     };
-
-    let price = oracle_read.price;
+    let price = header.price;
 
     let vault = &ctx.accounts.vault;
     if vault.total_shares > 0 && vault.total_assets > 0 {
@@ -164,14 +134,10 @@ pub fn handler(ctx: Context<ApproveDeposit>) -> Result<()> {
         .checked_add(amount_locked)
         .ok_or(VaultError::MathOverflow)?;
 
-    // Persist NAV bookkeeping. We always record the last-seen price (used by
-    // both the deviation guard and by analytics). We only advance
-    // `last_seen_nav_sequence` when reading from the nav-oracle program;
-    // the mock-oracle path uses sequence=0 as a sentinel and must not corrupt
-    // the monotonic counter.
-    vault.last_seen_nav_price = price;
-    if vault.oracle_source == ORACLE_SOURCE_NAV_ORACLE {
-        vault.last_seen_nav_sequence = oracle_read.sequence;
+    // Advance the monotonic sequence only when the oracle uses sequencing
+    // (`sequence != 0`). A sentinel `0` (e.g. mock-oracle) skips the bump.
+    if header.sequence != 0 {
+        vault.last_seen_nav_sequence = header.sequence;
     }
 
     emit!(InvestmentApproved {

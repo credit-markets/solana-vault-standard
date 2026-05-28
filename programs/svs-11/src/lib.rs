@@ -7,7 +7,6 @@ pub mod events;
 pub mod hook_extras;
 pub mod instructions;
 pub mod math;
-pub mod oracle;
 pub mod state;
 
 use instructions::*;
@@ -142,14 +141,6 @@ pub mod svs_11 {
         instructions::draw_down::handler(ctx, amount)
     }
 
-    /// Switch CreditVault oracle read path between the simple/mock oracle
-    /// (0, neutral upstream default) and the optional NavOracle adapter (1,
-    /// rich credit-market NAV). Authority-gated; does not mutate `nav_oracle`
-    /// or `oracle_program`.
-    pub fn set_oracle_source(ctx: Context<UpdateOracleParams>, source: u8) -> Result<()> {
-        instructions::admin::set_oracle_source_handler(ctx, source)
-    }
-
     /// Pause the vault, halting approvals and capital movements.
     pub fn pause(ctx: Context<Admin>) -> Result<()> {
         instructions::admin::pause_handler(ctx)
@@ -213,12 +204,14 @@ pub mod svs_11 {
         instructions::admin::initialize_vault_config_handler(ctx)
     }
 
-    /// Request an oracle change (starts 24h timelock).
+    /// Request an oracle change (starts 24h timelock). Stages both the new
+    /// oracle account and its owner program; both are applied atomically.
     pub fn request_oracle_change(
         ctx: Context<RequestOracleChange>,
         new_oracle: Pubkey,
+        new_oracle_program: Pubkey,
     ) -> Result<()> {
-        instructions::admin::request_oracle_change_handler(ctx, new_oracle)
+        instructions::admin::request_oracle_change_handler(ctx, new_oracle, new_oracle_program)
     }
 
     /// Apply a pending oracle change after timelock expires.

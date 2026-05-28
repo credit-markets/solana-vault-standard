@@ -37,4 +37,10 @@ pub enum NavOracleError {
 
     #[msg("pool account data is missing or shorter than CreditVault.authority offset")]
     PoolAccountInvalid = 7011,
+
+    #[msg("New NAV deviates more than max_deviation_bps from the previously published NAV")]
+    DeviationExceeded = 7012,
+
+    #[msg("max_deviation_bps must be > 0 (a zero ceiling rejects every consecutive publish)")]
+    InvalidDeviationConfig = 7013,
 }

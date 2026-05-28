@@ -1,14 +1,14 @@
 use anchor_lang::prelude::*;
 
 use crate::constants::{
-    MAX_DEVIATION_BPS_CAP, ORACLE_SOURCE_MOCK, ORACLE_SOURCE_NAV_ORACLE, ORACLE_TIMELOCK,
-    VAULT_CONFIG_SEED, VAULT_SEED,
+    DEFAULT_MAX_NAV_STALENESS_SECS, MAX_DEVIATION_BPS_CAP, ORACLE_TIMELOCK, VAULT_CONFIG_SEED,
+    VAULT_SEED,
 };
 use crate::error::VaultError;
 use crate::events::{
     AttesterUpdated, AuthorityTransferRequested, AuthorityTransferred, ManagerChanged,
-    OracleChangeApplied, OracleChangeRequested, OracleConfigUpdated, OracleSourceChanged,
-    VaultConfigInitialized, VaultStatusChanged,
+    OracleChangeApplied, OracleChangeRequested, OracleConfigUpdated, VaultConfigInitialized,
+    VaultStatusChanged,
 };
 use crate::state::{CreditVault, VaultConfig};
 
@@ -260,8 +260,10 @@ pub fn update_oracle_params_handler(
     let vault = &mut ctx.accounts.vault;
 
     if let Some(staleness) = new_max_staleness {
+        // Ceiling is the NAV staleness window (45 days), not 24h — `max_staleness`
+        // is now the single oracle staleness config after the mock/nav collapse.
         require!(
-            (60..=86400).contains(&staleness),
+            (60..=DEFAULT_MAX_NAV_STALENESS_SECS).contains(&staleness),
             VaultError::InvalidStalenessConfig
         );
         vault.max_staleness = staleness;
@@ -282,40 +284,6 @@ pub fn update_oracle_params_handler(
         old_program: vault.oracle_program,
         new_program: vault.oracle_program,
         new_max_staleness: vault.max_staleness,
-    });
-
-    Ok(())
-}
-
-/// Toggle the vault's oracle read path between mock (0) and nav-oracle (1).
-/// Does NOT mutate `nav_oracle` or `oracle_program` addresses.
-pub fn set_oracle_source_handler(ctx: Context<UpdateOracleParams>, source: u8) -> Result<()> {
-    require!(
-        source == ORACLE_SOURCE_MOCK || source == ORACLE_SOURCE_NAV_ORACLE,
-        VaultError::OracleSourceInvalid
-    );
-
-    let vault = &mut ctx.accounts.vault;
-    let old_source = vault.oracle_source;
-
-    // Source-cross-contamination guard: the deviation baseline carries
-    // price + sequence semantics specific to one source. Zeroing them
-    // means the next NAV read post-toggle SKIPS the deviation guard (the
-    // guard short-circuits on previous_price == 0). approve_redeem still
-    // catches gross price-vs-totals drift via the vault-derived expected-
-    // price check; approve_deposit has no such check, so admin MUST
-    // verify the new source's first publish manually before resuming
-    // deposit approvals.
-    if old_source != source {
-        vault.last_seen_nav_price = 0;
-        vault.last_seen_nav_sequence = 0;
-    }
-    vault.oracle_source = source;
-
-    emit!(OracleSourceChanged {
-        vault: vault.key(),
-        old_source,
-        new_source: source,
     });
 
     Ok(())
@@ -357,9 +325,10 @@ pub fn initialize_vault_config_handler(ctx: Context<InitializeVaultConfig>) -> R
     let vault_config = &mut ctx.accounts.vault_config;
     vault_config.vault = ctx.accounts.vault.key();
     vault_config.pending_oracle = Pubkey::default();
+    vault_config.pending_oracle_program = Pubkey::default();
     vault_config.oracle_change_at = 0;
     vault_config.bump = ctx.bumps.vault_config;
-    vault_config._reserved = [0u8; 63];
+    vault_config._reserved = [0u8; 31];
 
     emit!(VaultConfigInitialized {
         vault: ctx.accounts.vault.key(),
@@ -403,10 +372,19 @@ pub struct RequestOracleChange<'info> {
 pub fn request_oracle_change_handler(
     ctx: Context<RequestOracleChange>,
     new_oracle: Pubkey,
+    new_oracle_program: Pubkey,
 ) -> Result<()> {
     require!(new_oracle != Pubkey::default(), VaultError::InvalidAddress);
+    require!(
+        new_oracle_program != Pubkey::default(),
+        VaultError::InvalidAddress
+    );
 
-    // Validate the new oracle's program is executable
+    // The supplied program account must be the named program and executable.
+    require!(
+        ctx.accounts.new_oracle_program_account.key() == new_oracle_program,
+        VaultError::InvalidOracleProgram
+    );
     require!(
         ctx.accounts.new_oracle_program_account.executable,
         VaultError::InvalidOracleProgram
@@ -421,6 +399,7 @@ pub fn request_oracle_change_handler(
         .ok_or(VaultError::MathOverflow)?;
 
     vault_config.pending_oracle = new_oracle;
+    vault_config.pending_oracle_program = new_oracle_program;
     vault_config.oracle_change_at = change_at;
 
     emit!(OracleChangeRequested {
@@ -475,11 +454,14 @@ pub fn apply_oracle_change_handler(ctx: Context<ApplyOracleChange>) -> Result<()
 
     let old_oracle = ctx.accounts.vault.nav_oracle;
     let new_oracle = vault_config.pending_oracle;
+    let new_oracle_program = vault_config.pending_oracle_program;
 
     ctx.accounts.vault.nav_oracle = new_oracle;
+    ctx.accounts.vault.oracle_program = new_oracle_program;
 
     let vault_config = &mut ctx.accounts.vault_config;
     vault_config.pending_oracle = Pubkey::default();
+    vault_config.pending_oracle_program = Pubkey::default();
     vault_config.oracle_change_at = 0;
 
     emit!(OracleChangeApplied {

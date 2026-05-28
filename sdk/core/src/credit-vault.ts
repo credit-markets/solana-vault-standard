@@ -47,13 +47,10 @@ export interface CreditVaultState {
   bump: number;
   redemptionEscrowBump: number;
   paused: boolean;
-  // Oracle extensibility fields. `oracleSource` selects the read path:
-  //   0 = simple/mock oracle (neutral upstream default)
-  //   1 = NavOracle adapter (rich credit-grade NAV)
-  oracleSource: number;
+  // Pluggable oracle: `navOracle` is the configured oracle account and
+  // `oracleProgram` its owner program; the vault reads the generic
+  // SvsOraclePrice header. `lastSeenNavSequence` is the consumed sequence.
   lastSeenNavSequence: BN;
-  lastSeenNavPrice: BN;
-  maxNavStalenessSecs: BN;
 }
 
 export interface CreateCreditVaultParams {
@@ -393,9 +390,8 @@ export class CreditVault {
   async approveDeposit(
     manager: PublicKey,
     investor: PublicKey,
-    navOracle: PublicKey,
+    oracleAccount: PublicKey,
     attestation: PublicKey,
-    navAccount?: PublicKey,
   ): Promise<string> {
     const [investmentRequest] = getInvestmentRequestAddress(
       this.program.programId,
@@ -410,12 +406,9 @@ export class CreditVault {
         vault: this.vault,
         investmentRequest,
         investor,
-        navOracle,
-        // nav_account is the NavAccount PDA from the nav-oracle program.
-        // Read only when CreditVault.oracle_source == 1. For
-        // oracle_source == 0 (mock-oracle revert mode) any account works
-        // — we default to the program ID as a non-readable filler.
-        navAccount: navAccount ?? this.program.programId,
+        // The configured oracle account (vault.nav_oracle), read through the
+        // generic SvsOraclePrice header.
+        oracleAccount,
         attestation,
         clock: SYSVAR_CLOCK_PUBKEY,
       })
@@ -547,9 +540,8 @@ export class CreditVault {
   async approveRedeem(
     manager: PublicKey,
     investor: PublicKey,
-    navOracle: PublicKey,
+    oracleAccount: PublicKey,
     attestation: PublicKey,
-    navAccount?: PublicKey,
     /// Fixed-point ratio (1e18 = 100%). Default preserves the original
     /// "full fulfillment" semantics so existing SDK callers continue to
     /// work.
@@ -584,9 +576,8 @@ export class CreditVault {
         depositVault: this.depositVault,
         assetMint: this.assetMint,
         claimableTokens,
-        navOracle,
-        // nav_account — see approveDeposit for full context.
-        navAccount: navAccount ?? this.program.programId,
+        // The configured oracle account (vault.nav_oracle).
+        oracleAccount,
         attestation,
         assetTokenProgram: this.assetTokenProgram,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -745,28 +736,6 @@ export class CreditVault {
   async unpause(authority: PublicKey): Promise<string> {
     return this.program.methods
       .unpause()
-      .accountsPartial({
-        authority,
-        vault: this.vault,
-      })
-      .rpc();
-  }
-
-  /**
-   * Switch the vault's oracle read path between the simple/mock oracle
-   * (`source = 0`, neutral upstream default) and the optional NavOracle
-   * adapter (`source = 1`, rich credit-grade NAV).
-   *
-   * Authority-gated. Does NOT mutate `nav_oracle` or `oracle_program` —
-   * deployments can opt into or out of richer NAV reads without a full
-   * program upgrade. Emits an `OracleSourceChanged` event.
-   *
-   * @param authority - Vault authority (signer)
-   * @param source - 0 (simple/mock) or 1 (NavOracle adapter)
-   */
-  async setOracleSource(authority: PublicKey, source: 0 | 1): Promise<string> {
-    return this.program.methods
-      .setOracleSource(source)
       .accountsPartial({
         authority,
         vault: this.vault,

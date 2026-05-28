@@ -24,6 +24,11 @@ export function registerInitNavAccountCommand(parent: Command): void {
       "--rotation-authority <pubkey>",
       "Authority allowed to rotate the publisher",
     )
+    .option(
+      "--max-deviation-bps <number>",
+      "Max consecutive-publish NAV deviation in bps (> 0)",
+      "500",
+    )
     .action(async (poolArg, opts) => {
       const globalOpts = getGlobalOptions(parent.parent!);
       const ctx = await createContext(globalOpts, opts, true, true);
@@ -82,6 +87,8 @@ export function registerInitNavAccountCommand(parent: Command): void {
           pool,
           publisher,
           keyRotationAuthority,
+          poolAuthority: wallet.publicKey,
+          maxDeviationBps: Number(opts.maxDeviationBps),
         });
 
         spinner.succeed("NavAccount created");

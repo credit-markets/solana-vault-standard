@@ -14,8 +14,8 @@ declare_id!("7564bvScA3FjQ9w5nCx44EK4JkgitzZ3UstX1e4eKks7");
 pub mod nav_oracle {
     use super::*;
 
-    pub fn initialize(ctx: Context<InitializeNavAccount>) -> Result<()> {
-        instructions::initialize::handler(ctx)
+    pub fn initialize(ctx: Context<InitializeNavAccount>, args: InitializeNavArgs) -> Result<()> {
+        instructions::initialize::handler(ctx, args)
     }
 
     pub fn update(ctx: Context<UpdateNav>, args: UpdateArgs) -> Result<()> {

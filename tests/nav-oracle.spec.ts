@@ -27,7 +27,7 @@ describe("nav-oracle: update", () => {
     );
 
     await program.methods
-      .initialize()
+      .initialize({ maxDeviationBps: 500 })
       .accountsPartial({
         pool: pool.publicKey,
         navAccount: navPda,

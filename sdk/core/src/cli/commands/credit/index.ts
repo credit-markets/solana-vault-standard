@@ -12,7 +12,6 @@ import { registerCancelRedeemCommand } from "./cancel-redeem";
 import { registerRepayCommand } from "./repay";
 import { registerDrawDownCommand } from "./draw-down";
 import { registerInvestmentWindowCommand } from "./investment-window";
-import { registerSetOracleSourceCommand } from "./set-oracle-source";
 
 export function registerCreditCommands(program: Command): void {
   // Pool setup (operator runbook). bootstrap-shares-compliance runs
@@ -33,5 +32,4 @@ export function registerCreditCommands(program: Command): void {
   registerRepayCommand(program);
   registerDrawDownCommand(program);
   registerInvestmentWindowCommand(program);
-  registerSetOracleSourceCommand(program);
 }
