@@ -153,7 +153,10 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, CancelRedeem<'info>>) -> R
             shares_to_return,
             ctx.remaining_accounts,
         )
-        .map_err(|_| -> Error { error!(VaultError::HookExtrasMismatch) })?;
+        .map_err(|e| -> Error {
+            msg!("hook extras: {:?}", e);
+            error!(VaultError::HookExtrasMismatch)
+        })?;
     }
     invoke_signed(&transfer_ix, &transfer_account_infos, &[vault_seeds])?;
 

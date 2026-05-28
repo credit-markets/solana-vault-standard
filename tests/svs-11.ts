@@ -3955,4 +3955,198 @@ describe("svs-11 (Credit Markets Vault)", () => {
       );
     });
   });
+
+  describe("Redeem Rejection (hook extras)", () => {
+    let rejInvestor: Keypair;
+    let rejInvestorTokenAccount: PublicKey;
+    let rejInvestorSharesAccount: PublicKey;
+    let rejInvRequest: PublicKey;
+    let rejRedRequest: PublicKey;
+    let rejClaimableTokens: PublicKey;
+    let rejAttestation: PublicKey;
+    let rejSharesBeforeReq: bigint;
+
+    before(async () => {
+      rejInvestor = Keypair.generate();
+      const airdrop = await connection.requestAirdrop(
+        rejInvestor.publicKey,
+        2 * anchor.web3.LAMPORTS_PER_SOL,
+      );
+      await connection.confirmTransaction(airdrop);
+
+      [rejInvRequest] = getInvestmentRequestPDA(rejInvestor.publicKey);
+      [rejRedRequest] = getRedemptionRequestPDA(rejInvestor.publicKey);
+      [rejClaimableTokens] = getClaimableTokensPDA(rejInvestor.publicKey);
+      [rejAttestation] = getAttestationPDA(
+        rejInvestor.publicKey,
+        attester.publicKey,
+      );
+
+      await attestationMockProgram.methods
+        .createAttestation(attester.publicKey, 0, [66, 82], FAR_FUTURE_EXPIRY)
+        .accountsPartial({
+          authority: payer.publicKey,
+          attestation: rejAttestation,
+          subject: rejInvestor.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      const investorAta = await getOrCreateAssociatedTokenAccount(
+        connection,
+        payer,
+        assetMint,
+        rejInvestor.publicKey,
+      );
+      rejInvestorTokenAccount = investorAta.address;
+      const rejDepositAmount = new BN(1_000_000);
+      await mintTo(
+        connection,
+        payer,
+        assetMint,
+        rejInvestorTokenAccount,
+        payer,
+        rejDepositAmount.toNumber(),
+      );
+      const sharesAta = await getOrCreateAssociatedTokenAccount(
+        connection,
+        payer,
+        sharesMint,
+        rejInvestor.publicKey,
+        false,
+        undefined,
+        undefined,
+        TOKEN_2022_PROGRAM_ID,
+      );
+      rejInvestorSharesAccount = sharesAta.address;
+
+      try {
+        await program.methods
+          .openInvestmentWindow()
+          .accountsPartial({ manager: manager.publicKey, vault })
+          .signers([manager])
+          .rpc();
+      } catch (_) {
+        // Already open.
+      }
+
+      await program.methods
+        .requestDeposit(rejDepositAmount)
+        .accountsPartial({
+          investor: rejInvestor.publicKey,
+          vault,
+          investmentRequest: rejInvRequest,
+          investorTokenAccount: rejInvestorTokenAccount,
+          depositVault,
+          assetMint,
+          attestation: rejAttestation,
+          frozenCheck: null,
+          assetTokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .signers([rejInvestor])
+        .rpc();
+      await program.methods
+        .approveDeposit()
+        .accountsPartial({
+          manager: manager.publicKey,
+          vault,
+          investmentRequest: rejInvRequest,
+          investor: rejInvestor.publicKey,
+          sharesMint,
+          investorSharesAccount: rejInvestorSharesAccount,
+          depositVault,
+          assetMint,
+          navOracle: mockOracleData,
+          navAccount: program.programId,
+          attestation: rejAttestation,
+          frozenCheck: null,
+          assetTokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .signers([manager])
+        .rpc();
+      await program.methods
+        .claimDeposit()
+        .accountsPartial({
+          investor: rejInvestor.publicKey,
+          vault,
+          investmentRequest: rejInvRequest,
+          sharesMint,
+          investorSharesAccount: rejInvestorSharesAccount,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          attestation: rejAttestation,
+        })
+        .signers([rejInvestor])
+        .rpc();
+
+      const claimed = await getAccount(
+        connection,
+        rejInvestorSharesAccount,
+        undefined,
+        TOKEN_2022_PROGRAM_ID,
+      );
+      rejSharesBeforeReq = claimed.amount;
+
+      await program.methods
+        .requestRedeem(new BN(rejSharesBeforeReq.toString()), new BN(0))
+        .accountsPartial({
+          investor: rejInvestor.publicKey,
+          vault,
+          redemptionRequest: rejRedRequest,
+          sharesMint,
+          investorSharesAccount: rejInvestorSharesAccount,
+          redemptionEscrow,
+          assetMint,
+          claimableTokens: rejClaimableTokens,
+          attestation: rejAttestation,
+          frozenCheck: null,
+          assetTokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .remainingAccounts(requestRedeemHookExtras(rejInvestor.publicKey))
+        .signers([rejInvestor])
+        .rpc();
+    });
+
+    it("reject_redeem returns escrowed shares through the transfer hook", async () => {
+      await program.methods
+        .rejectRedeem(0)
+        .accountsPartial({
+          manager: manager.publicKey,
+          vault,
+          redemptionRequest: rejRedRequest,
+          investor: rejInvestor.publicKey,
+          sharesMint,
+          assetMint,
+          claimableTokens: rejClaimableTokens,
+          investorSharesAccount: rejInvestorSharesAccount,
+          redemptionEscrow,
+          assetTokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts(cancelRedeemHookExtras(rejInvestor.publicKey))
+        .signers([manager])
+        .rpc();
+
+      const sharesAfter = await getAccount(
+        connection,
+        rejInvestorSharesAccount,
+        undefined,
+        TOKEN_2022_PROGRAM_ID,
+      );
+      expect(sharesAfter.amount.toString()).to.equal(
+        rejSharesBeforeReq.toString(),
+      );
+
+      const info = await connection.getAccountInfo(rejRedRequest);
+      expect(info).to.be.null;
+    });
+  });
 });

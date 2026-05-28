@@ -72,3 +72,61 @@ impl NavAccount {
         nav_net_u128.abs_diff(expected) <= tolerance
     }
 }
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    use anchor_lang::AnchorSerialize;
+
+    /// SVS-11's `read_nav_oracle_price` (oracle.rs) reads NavAccount fields by
+    /// absolute byte offset after the 8-byte discriminator: pool 0..32,
+    /// nav_net 32..40, timestamp 60..68, sequence 68..76, publisher 76..108.
+    /// If this layout drifts, that reader silently parses the wrong bytes.
+    #[test]
+    fn nav_account_layout_stable_for_cross_program_reader() {
+        let pool = Pubkey::new_unique();
+        let publisher = Pubkey::new_unique();
+        let nav = NavAccount {
+            pool,
+            nav_net: 1_000_000_000,
+            nav_gross: 1_010_000_000,
+            ter_bps: 150,
+            loss_provision_bps: 50,
+            nav_type: 0,
+            _padding: [0u8; 7],
+            timestamp: 1_700_000_000,
+            sequence: 42,
+            publisher,
+            signature: [0u8; 64],
+            loan_tape_merkle_root: [0u8; 32],
+            key_rotation_authority: Pubkey::new_unique(),
+        };
+        let bytes = nav.try_to_vec().expect("serialize");
+        assert_eq!(
+            bytes.len(),
+            NavAccount::SPACE - 8,
+            "NavAccount payload drifted from SPACE"
+        );
+        assert_eq!(&bytes[0..32], pool.as_ref(), "pool offset moved");
+        assert_eq!(
+            u64::from_le_bytes(bytes[32..40].try_into().unwrap()),
+            1_000_000_000,
+            "nav_net offset moved"
+        );
+        assert_eq!(
+            i64::from_le_bytes(bytes[60..68].try_into().unwrap()),
+            1_700_000_000,
+            "timestamp offset moved"
+        );
+        assert_eq!(
+            u64::from_le_bytes(bytes[68..76].try_into().unwrap()),
+            42,
+            "sequence offset moved"
+        );
+        assert_eq!(
+            &bytes[76..108],
+            publisher.as_ref(),
+            "publisher offset moved"
+        );
+    }
+}

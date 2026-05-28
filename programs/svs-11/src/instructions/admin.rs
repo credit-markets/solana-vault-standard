@@ -231,43 +231,6 @@ pub fn update_attester_handler(
     Ok(())
 }
 
-/// Deprecated: This instruction bypasses the 24h oracle timelock (C-3 fix).
-/// Use `request_oracle_change` + `apply_oracle_change` for oracle address changes,
-/// and `update_oracle_params` for staleness/deviation settings.
-#[derive(Accounts)]
-pub struct UpdateOracleConfig<'info> {
-    #[account(
-        constraint = authority.key() == vault.authority @ VaultError::Unauthorized,
-    )]
-    pub authority: Signer<'info>,
-
-    #[account(
-        seeds = [VAULT_SEED, vault.asset_mint.as_ref(), &vault.vault_id.to_le_bytes()],
-        bump = vault.bump,
-    )]
-    pub vault: Box<Account<'info, CreditVault>>,
-
-    /// CHECK: No longer used; kept for IDL backwards compatibility.
-    pub new_oracle_program_account: UncheckedAccount<'info>,
-}
-
-/// Deprecated: always returns `OracleConfigDeprecated` error.
-/// Oracle address/program changes must go through the timelock flow
-/// (`request_oracle_change` + `apply_oracle_change`).
-/// Staleness and deviation settings use `update_oracle_params`.
-#[deprecated(
-    note = "Bypasses oracle timelock. Use request_oracle_change + apply_oracle_change, or update_oracle_params."
-)]
-pub fn update_oracle_config_handler(
-    _ctx: Context<UpdateOracleConfig>,
-    _new_nav_oracle: Pubkey,
-    _new_oracle_program: Pubkey,
-    _new_max_staleness: i64,
-    _new_max_deviation_bps: Option<u16>,
-) -> Result<()> {
-    err!(VaultError::OracleConfigDeprecated)
-}
-
 // =============================================================================
 // Oracle non-address parameter updates (no timelock required)
 // =============================================================================

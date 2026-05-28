@@ -184,7 +184,10 @@ pub fn handler<'info>(
             shares,
             ctx.remaining_accounts,
         )
-        .map_err(|_| -> Error { error!(VaultError::HookExtrasMismatch) })?;
+        .map_err(|e| -> Error {
+            msg!("hook extras: {:?}", e);
+            error!(VaultError::HookExtrasMismatch)
+        })?;
     }
     invoke_signed(&transfer_ix, &transfer_account_infos, &[])?;
 

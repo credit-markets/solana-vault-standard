@@ -124,9 +124,6 @@ pub enum VaultError {
     )]
     UnauthorizedComplianceAction,
 
-    #[msg("update_oracle_config is deprecated: use request_oracle_change + apply_oracle_change for oracle address changes, and update_oracle_params for staleness/deviation settings")]
-    OracleConfigDeprecated,
-
     #[msg("No pending authority transfer")]
     NoPendingTransfer,
 

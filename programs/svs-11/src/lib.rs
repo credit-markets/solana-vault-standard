@@ -117,7 +117,10 @@ pub mod svs_11 {
     }
 
     /// Manager rejects a pending redemption request.
-    pub fn reject_redeem(ctx: Context<RejectRedeem>, reason_code: u8) -> Result<()> {
+    pub fn reject_redeem<'info>(
+        ctx: Context<'_, '_, '_, 'info, RejectRedeem<'info>>,
+        reason_code: u8,
+    ) -> Result<()> {
         instructions::reject_redeem::handler(ctx, reason_code)
     }
 
@@ -199,27 +202,6 @@ pub mod svs_11 {
         new_attestation_program: Pubkey,
     ) -> Result<()> {
         instructions::admin::update_attester_handler(ctx, new_attester, new_attestation_program)
-    }
-
-    /// Update the NAV oracle configuration.
-    /// DEPRECATED: Bypasses 24h oracle timelock. Always returns an error.
-    /// Use `request_oracle_change` + `apply_oracle_change` for oracle address changes,
-    /// and `update_oracle_params` for staleness/deviation settings.
-    #[allow(deprecated)]
-    pub fn update_oracle_config(
-        ctx: Context<UpdateOracleConfig>,
-        new_nav_oracle: Pubkey,
-        new_oracle_program: Pubkey,
-        new_max_staleness: i64,
-        new_max_deviation_bps: Option<u16>,
-    ) -> Result<()> {
-        instructions::admin::update_oracle_config_handler(
-            ctx,
-            new_nav_oracle,
-            new_oracle_program,
-            new_max_staleness,
-            new_max_deviation_bps,
-        )
     }
 
     /// Update oracle non-address parameters (staleness, deviation) without timelock.
