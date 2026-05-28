@@ -107,13 +107,7 @@ pub struct ApproveRedeem<'info> {
 }
 
 /// 1e18 = 100% (matches backend's fixed-point convention).
-const RATIO_SCALE_1E18: u128 = 1_000_000_000_000_000_000;
-
-pub fn handler(
-    ctx: Context<ApproveRedeem>,
-    batch_settlement_ratio_scaled: u128,
-    next_settlement_at: i64,
-) -> Result<()> {
+pub fn handler(ctx: Context<ApproveRedeem>) -> Result<()> {
     require!(!ctx.accounts.vault.paused, VaultError::VaultPaused);
 
     compliance_hook::assert_wallet_compliant(
@@ -121,25 +115,6 @@ pub fn handler(
         &ctx.accounts.frozen_check.to_account_info(),
         &ctx.accounts.investor.key(),
     )?;
-
-    require!(
-        batch_settlement_ratio_scaled > 0 && batch_settlement_ratio_scaled <= RATIO_SCALE_1E18,
-        VaultError::ZeroAmount
-    );
-
-    // Sentinel 0 = "no requeue date" (full fulfillment doesn't need one;
-    // partials with 0 are valid but display as unscheduled). Any non-zero
-    // value must fall within [now, now + MAX_SETTLEMENT_HORIZON_SECS].
-    let now = ctx.accounts.clock.unix_timestamp;
-    if next_settlement_at != 0 {
-        let horizon = now
-            .checked_add(crate::constants::MAX_SETTLEMENT_HORIZON_SECS)
-            .ok_or(VaultError::MathOverflow)?;
-        require!(
-            next_settlement_at >= now && next_settlement_at <= horizon,
-            VaultError::SettlementHorizonOutOfRange
-        );
-    }
 
     // Reconciliation: refuse to redeem if vault.total_shares has drifted
     // from the on-chain supply.
@@ -195,22 +170,12 @@ pub fn handler(
             .map_err(|_| VaultError::OracleDeviationExceeded)?;
     }
 
-    // Pro-rata fulfill = floor(remaining × ratio / 1e18). Floor favors vault.
-    // Parenthesize the division before the cast — `as u64` binds tighter than `/`.
-    let request_snapshot = &ctx.accounts.redemption_request;
-    let shares_locked = request_snapshot.shares_locked;
-    let already_fulfilled = request_snapshot.fulfilled_shares_cumulative;
-    let remaining = shares_locked
-        .checked_sub(already_fulfilled)
-        .ok_or(VaultError::MathOverflow)?;
-    require!(remaining > 0, VaultError::ZeroAmount);
+    // Full-approval: burn ALL locked shares and pay out their asset value
+    // atomically. No partial/pro-rata path.
+    let shares_locked = ctx.accounts.redemption_request.shares_locked;
+    require!(shares_locked > 0, VaultError::ZeroAmount);
 
-    let fulfill: u64 =
-        (((remaining as u128) * batch_settlement_ratio_scaled) / RATIO_SCALE_1E18) as u64;
-    require!(fulfill > 0, VaultError::ZeroAmount);
-    require!(fulfill <= remaining, VaultError::MathOverflow);
-
-    let gross_assets = math::shares_to_assets(fulfill, price)?;
+    let gross_assets = math::shares_to_assets(shares_locked, price)?;
 
     #[cfg(feature = "modules")]
     let net_assets = {
@@ -254,7 +219,7 @@ pub fn handler(
             },
             &[vault_seeds],
         ),
-        fulfill,
+        shares_locked,
     )?;
 
     transfer_checked(
@@ -274,22 +239,9 @@ pub fn handler(
 
     let now = ctx.accounts.clock.unix_timestamp;
     let request = &mut ctx.accounts.redemption_request;
-    let new_cumulative = request
-        .fulfilled_shares_cumulative
-        .checked_add(fulfill)
-        .ok_or(VaultError::MathOverflow)?;
-    request.fulfilled_shares_cumulative = new_cumulative;
-    request.assets_claimable = request
-        .assets_claimable
-        .checked_add(net_assets)
-        .ok_or(VaultError::MathOverflow)?;
-
-    if new_cumulative >= shares_locked {
-        request.status = RequestStatus::Approved;
-        request.fulfilled_at = now;
-    } else {
-        request.queued_for_settlement_at = next_settlement_at;
-    }
+    request.assets_claimable = net_assets;
+    request.status = RequestStatus::Approved;
+    request.fulfilled_at = now;
 
     let vault = &mut ctx.accounts.vault;
     vault.total_assets = vault
@@ -298,15 +250,12 @@ pub fn handler(
         .ok_or(VaultError::MathOverflow)?;
     vault.total_shares = vault
         .total_shares
-        .checked_sub(fulfill)
+        .checked_sub(shares_locked)
         .ok_or(VaultError::MathOverflow)?;
-    // Pending counter only decrements on FULL fulfillment.
-    if new_cumulative >= shares_locked {
-        vault.total_pending_redeems = vault
-            .total_pending_redeems
-            .checked_sub(1)
-            .ok_or(VaultError::MathOverflow)?;
-    }
+    vault.total_pending_redeems = vault
+        .total_pending_redeems
+        .checked_sub(1)
+        .ok_or(VaultError::MathOverflow)?;
 
     // Advance the monotonic sequence only when the oracle uses sequencing.
     if header.sequence != 0 {
@@ -316,12 +265,9 @@ pub fn handler(
     emit!(RedemptionApproved {
         vault: vault.key(),
         investor: ctx.accounts.investor.key(),
-        shares: fulfill,
+        shares: shares_locked,
         assets: net_assets,
         nav: price,
-        ratio_scaled: batch_settlement_ratio_scaled,
-        cumulative_fulfilled: new_cumulative,
-        next_settlement_at,
         manager: ctx.accounts.manager.key(),
     });
 

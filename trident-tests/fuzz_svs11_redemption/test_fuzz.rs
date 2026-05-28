@@ -65,13 +65,13 @@ struct VaultState {
 impl VaultState {
     fn available_liquidity(&self) -> u64 {
         self.deposit_vault_amount
-            .saturating_sub(self.total_pending_deposits)
-            .saturating_sub(self.total_approved_deposits)
+            .checked_sub(self.total_pending_deposits).expect("fuzz model overflow: sub")
+            .checked_sub(self.total_approved_deposits).expect("fuzz model overflow: sub")
     }
 
     fn shares_to_assets(&self, shares: u64) -> u64 {
         ((shares as u128)
-            .saturating_mul(self.nav_price as u128)
+            .checked_mul(self.nav_price as u128).expect("fuzz model overflow: mul")
             .checked_div(SHARES_DECIMALS_POW)
             .unwrap_or(0)) as u64
     }
@@ -140,8 +140,8 @@ impl FuzzTest {
             status: RequestStatus::Pending,
         };
         self.state.redemption_escrow_amount =
-            self.state.redemption_escrow_amount.saturating_add(shares);
-        self.state.total_pending_redeems = self.state.total_pending_redeems.saturating_add(1);
+            self.state.redemption_escrow_amount.checked_add(shares).expect("fuzz model overflow: add");
+        self.state.total_pending_redeems = self.state.total_pending_redeems.checked_add(1).expect("fuzz model overflow: add");
 
         // INVARIANT: original_shares is the immutable snapshot.
         assert_eq!(
@@ -218,26 +218,26 @@ impl FuzzTest {
 
         // Burn shares from escrow.
         self.state.redemption_escrow_amount =
-            self.state.redemption_escrow_amount.saturating_sub(fulfill);
+            self.state.redemption_escrow_amount.checked_sub(fulfill).expect("fuzz model overflow: sub");
         // Transfer assets deposit_vault → claimable_tokens.
         self.state.deposit_vault_amount =
-            self.state.deposit_vault_amount.saturating_sub(net_assets);
+            self.state.deposit_vault_amount.checked_sub(net_assets).expect("fuzz model overflow: sub");
         self.state.claimable_tokens_amount = self
             .state
             .claimable_tokens_amount
-            .saturating_add(net_assets);
+            .checked_add(net_assets).expect("fuzz model overflow: add");
 
         let new_cumulative = self
             .state
             .request
             .fulfilled_shares_cumulative
-            .saturating_add(fulfill);
+            .checked_add(fulfill).expect("fuzz model overflow: add");
         self.state.request.fulfilled_shares_cumulative = new_cumulative;
         self.state.request.assets_claimable = self
             .state
             .request
             .assets_claimable
-            .saturating_add(net_assets);
+            .checked_add(net_assets).expect("fuzz model overflow: add");
 
         if new_cumulative >= shares_locked {
             self.state.request.status = RequestStatus::Approved;
@@ -245,11 +245,11 @@ impl FuzzTest {
             self.state.request.queued_for_settlement_at = next_settlement_at;
         }
 
-        self.state.total_assets = self.state.total_assets.saturating_sub(net_assets);
-        self.state.total_shares = self.state.total_shares.saturating_sub(fulfill);
+        self.state.total_assets = self.state.total_assets.checked_sub(net_assets).expect("fuzz model overflow: sub");
+        self.state.total_shares = self.state.total_shares.checked_sub(fulfill).expect("fuzz model overflow: sub");
         if new_cumulative >= shares_locked {
             self.state.total_pending_redeems =
-                self.state.total_pending_redeems.saturating_sub(1);
+                self.state.total_pending_redeems.checked_sub(1).expect("fuzz model overflow: sub");
         }
         self.state.approve_count += 1;
 
@@ -273,7 +273,7 @@ impl FuzzTest {
         // INVARIANT: total_shares decremented by exactly `fulfill`.
         assert_eq!(
             self.state.total_shares,
-            prev_total_shares.saturating_sub(fulfill),
+            prev_total_shares.checked_sub(fulfill).expect("fuzz model overflow: sub"),
             "total_shares delta != fulfill"
         );
         // INVARIANT: status flip iff cumulative reached shares_locked.
@@ -343,8 +343,8 @@ impl FuzzTest {
         self.state.redemption_escrow_amount = self
             .state
             .redemption_escrow_amount
-            .saturating_sub(returned_shares);
-        self.state.total_pending_redeems = self.state.total_pending_redeems.saturating_sub(1);
+            .checked_sub(returned_shares).expect("fuzz model overflow: sub");
+        self.state.total_pending_redeems = self.state.total_pending_redeems.checked_sub(1).expect("fuzz model overflow: sub");
         self.state.request = RedemptionRequest::default();
         self.state.cancel_count += 1;
 
@@ -377,8 +377,8 @@ impl FuzzTest {
         self.state.redemption_escrow_amount = self
             .state
             .redemption_escrow_amount
-            .saturating_sub(returned_shares);
-        self.state.total_pending_redeems = self.state.total_pending_redeems.saturating_sub(1);
+            .checked_sub(returned_shares).expect("fuzz model overflow: sub");
+        self.state.total_pending_redeems = self.state.total_pending_redeems.checked_sub(1).expect("fuzz model overflow: sub");
         self.state.request = RedemptionRequest::default();
         self.state.reject_count += 1;
 

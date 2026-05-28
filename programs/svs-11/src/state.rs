@@ -210,36 +210,6 @@ pub struct RedemptionRequest {
     pub requested_at: i64,
     pub fulfilled_at: i64,
     pub bump: u8,
-
-    // =========================================================================
-    // Pro-rata fulfillment + auto-requeue (+24 bytes)
-    // =========================================================================
-    //
-    // These three fields support the rolling-notice settlement model
-    // where a single RedemptionRequest may be partially fulfilled
-    // across multiple settlement dates. `original_shares` snapshots the
-    // initial intent (never changes). `fulfilled_shares_cumulative`
-    // accumulates across one or more partial settlements.
-    // `queued_for_settlement_at` is auto-bumped to the next settlement
-    // epoch on partial fulfillment so the request stays in the queue
-    // without a re-request from the investor.
-    //
-    // Realloc forward-reference: the +24 bytes break deserialization of
-    // any RedemptionRequest PDA created before this upgrade. The drain
-    // script empties existing PDAs pre-deploy and a per-pool pause flag
-    // ensures no new PDAs land on the old layout during the deploy
-    // window.
-    /// Snapshot of `shares_locked` at first request (never changes after creation).
-    /// Used by tests + analytics to compare original intent vs fulfilled cumulative.
-    pub original_shares: u64,
-
-    /// Settlement-date epoch this request is currently queued for. Auto-bumps
-    /// to next scheduled date on partial fulfillment via `approve_redeem`.
-    pub queued_for_settlement_at: i64,
-
-    /// Cumulative shares fulfilled across one or more partial settlements.
-    /// `fulfilled_shares_cumulative >= shares_locked` ⇒ request fully fulfilled.
-    pub fulfilled_shares_cumulative: u64,
 }
 
 impl RedemptionRequest {
@@ -251,11 +221,7 @@ impl RedemptionRequest {
         1 +   // status
         8 +   // requested_at
         8 +   // fulfilled_at
-        1 +   // bump
-        // ---- Pro-rata fulfillment fields (+24 bytes) ----
-        8 +   // original_shares
-        8 +   // queued_for_settlement_at
-        8; // fulfilled_shares_cumulative
+        1; // bump
 
     pub const SEED_PREFIX: &'static [u8] = REDEMPTION_REQUEST_SEED;
 }

@@ -91,7 +91,6 @@ pub struct RequestRedeem<'info> {
 pub fn handler<'info>(
     ctx: Context<'_, '_, '_, 'info, RequestRedeem<'info>>,
     shares: u64,
-    queued_for_settlement_at: i64,
 ) -> Result<()> {
     require!(shares > 0, VaultError::ZeroAmount);
     require!(!ctx.accounts.vault.paused, VaultError::VaultPaused);
@@ -181,10 +180,6 @@ pub fn handler<'info>(
     request.requested_at = ctx.accounts.clock.unix_timestamp;
     request.fulfilled_at = 0;
     request.bump = ctx.bumps.redemption_request;
-
-    request.original_shares = shares;
-    request.queued_for_settlement_at = queued_for_settlement_at;
-    request.fulfilled_shares_cumulative = 0;
 
     emit!(RedemptionRequested {
         vault: ctx.accounts.vault.key(),

@@ -495,7 +495,6 @@ export class CreditVault {
     investor: PublicKey,
     shares: BN,
     attestation: PublicKey,
-    queuedForSettlementAt?: BN,
     remainingAccounts?: AccountMeta[],
   ): Promise<string> {
     const [redemptionRequest] = getRedemptionRequestAddress(
@@ -510,10 +509,8 @@ export class CreditVault {
     );
     const investorSharesAccount = this.getInvestorSharesAccount(investor);
 
-    const queuedAt = queuedForSettlementAt ?? new BN(0);
-
     const builder = this.program.methods
-      .requestRedeem(shares, queuedAt)
+      .requestRedeem(shares)
       .accountsPartial({
         investor,
         vault: this.vault,
@@ -542,13 +539,6 @@ export class CreditVault {
     investor: PublicKey,
     oracleAccount: PublicKey,
     attestation: PublicKey,
-    /// Fixed-point ratio (1e18 = 100%). Default preserves the original
-    /// "full fulfillment" semantics so existing SDK callers continue to
-    /// work.
-    batchSettlementRatioScaled?: BN,
-    /// Settlement epoch the request auto-requeues to on partial
-    /// fulfillment. Ignored on full fulfillment.
-    nextSettlementAt?: BN,
   ): Promise<string> {
     const [redemptionRequest] = getRedemptionRequestAddress(
       this.program.programId,
@@ -561,11 +551,8 @@ export class CreditVault {
       investor,
     );
 
-    const ratio = batchSettlementRatioScaled ?? new BN("1000000000000000000"); // 1e18 default
-    const nextSettlement = nextSettlementAt ?? new BN(0);
-
     return this.program.methods
-      .approveRedeem(ratio, nextSettlement)
+      .approveRedeem()
       .accountsPartial({
         manager,
         vault: this.vault,

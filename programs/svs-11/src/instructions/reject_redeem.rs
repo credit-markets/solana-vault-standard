@@ -35,7 +35,6 @@ pub struct RejectRedeem<'info> {
         seeds = [REDEMPTION_REQUEST_SEED, vault.key().as_ref(), redemption_request.investor.as_ref()],
         bump = redemption_request.bump,
         constraint = redemption_request.status == RequestStatus::Pending @ VaultError::RequestNotPending,
-        constraint = redemption_request.assets_claimable == 0 @ VaultError::RequestPartiallyFulfilled,
     )]
     pub redemption_request: Box<Account<'info, RedemptionRequest>>,
 
@@ -48,7 +47,7 @@ pub struct RejectRedeem<'info> {
     #[account(constraint = asset_mint.key() == vault.asset_mint)]
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
 
-    /// Empty (guarded by `assets_claimable == 0`); closed to refund rent.
+    /// Empty for a Pending request; closed to refund rent.
     #[account(
         mut,
         seeds = [CLAIMABLE_TOKENS_SEED, vault.key().as_ref(), investor.key().as_ref()],

@@ -46,9 +46,6 @@ const COMPLIANCE_HOOK_PROGRAM_ID = new PublicKey(
 );
 const PRICE_SCALE = new BN(1_000_000_000);
 const FAR_FUTURE_EXPIRY = new BN(4_102_444_800); // ~year 2100
-// full-fulfillment ratio (1e18). Tests reuse this
-// across all approve_redeem calls to preserve pre-Plan-C semantics.
-const FULL_FULFILLMENT_RATIO = new BN("1000000000000000000");
 
 describe("svs-11 (Credit Markets Vault)", () => {
   const provider = anchor.AnchorProvider.env();
@@ -1017,7 +1014,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
       const sharesToRedeem = new BN(sharesBefore.amount.toString());
 
       await program.methods
-        .requestRedeem(sharesToRedeem, new BN(0))
+        .requestRedeem(sharesToRedeem)
         .accountsPartial({
           investor: investor.publicKey,
           vault,
@@ -1061,7 +1058,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
 
     it("manager approves redemption", async () => {
       await program.methods
-        .approveRedeem(FULL_FULFILLMENT_RATIO, new BN(0))
+        .approveRedeem()
         .accountsPartial({
           manager: manager.publicKey,
           vault,
@@ -1190,7 +1187,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
       );
 
       await program.methods
-        .requestRedeem(new BN(shares.amount.toString()), new BN(0))
+        .requestRedeem(new BN(shares.amount.toString()))
         .accountsPartial({
           investor: investor.publicKey,
           vault,
@@ -1635,7 +1632,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
 
       try {
         await program.methods
-          .requestRedeem(new BN(0), new BN(0))
+          .requestRedeem(new BN(0))
           .accountsPartial({
             investor: zeroRedeemer.publicKey,
             vault,
@@ -2100,7 +2097,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
       );
 
       await program.methods
-        .requestRedeem(new BN(shares.amount.toString()), new BN(0))
+        .requestRedeem(new BN(shares.amount.toString()))
         .accountsPartial({
           investor: liqInvestor.publicKey,
           vault,
@@ -2122,7 +2119,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
 
       try {
         await program.methods
-          .approveRedeem(FULL_FULFILLMENT_RATIO, new BN(0))
+          .approveRedeem()
           .accountsPartial({
             manager: manager.publicKey,
             vault,
@@ -2939,296 +2936,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
     });
   });
 
-  describe("Pro-rata Partial Fulfillment", () => {
-    const HALF_RATIO = new BN("500000000000000000"); // 0.5e18 = 50%
-    let partialInvestor: Keypair;
-    let partialInvestorTokenAccount: PublicKey;
-    let partialInvestorSharesAccount: PublicKey;
-    let partialInvRequest: PublicKey;
-    let partialRedRequest: PublicKey;
-    let partialClaimableTokens: PublicKey;
-    let partialAttestation: PublicKey;
-    let partialDepositAmount: BN;
-
-    before(async () => {
-      partialInvestor = Keypair.generate();
-      const airdrop = await connection.requestAirdrop(
-        partialInvestor.publicKey,
-        2 * anchor.web3.LAMPORTS_PER_SOL,
-      );
-      await connection.confirmTransaction(airdrop);
-
-      [partialInvRequest] = getInvestmentRequestPDA(partialInvestor.publicKey);
-      [partialRedRequest] = getRedemptionRequestPDA(partialInvestor.publicKey);
-      [partialClaimableTokens] = getClaimableTokensPDA(
-        partialInvestor.publicKey,
-      );
-      [partialAttestation] = getAttestationPDA(
-        partialInvestor.publicKey,
-        attester.publicKey,
-      );
-
-      // Issue attestation.
-      await attestationMockProgram.methods
-        .createAttestation(attester.publicKey, 0, [66, 82], FAR_FUTURE_EXPIRY)
-        .accountsPartial({
-          authority: payer.publicKey,
-          attestation: partialAttestation,
-          subject: partialInvestor.publicKey,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-
-      // Fund investor with USDC and create shares ATA.
-      const investorAta = await getOrCreateAssociatedTokenAccount(
-        connection,
-        payer,
-        assetMint,
-        partialInvestor.publicKey,
-      );
-      partialInvestorTokenAccount = investorAta.address;
-      partialDepositAmount = new BN(1_000_000);
-      await mintTo(
-        connection,
-        payer,
-        assetMint,
-        partialInvestorTokenAccount,
-        payer,
-        partialDepositAmount.toNumber(),
-      );
-      const sharesAta = await getOrCreateAssociatedTokenAccount(
-        connection,
-        payer,
-        sharesMint,
-        partialInvestor.publicKey,
-        false,
-        undefined,
-        undefined,
-        TOKEN_2022_PROGRAM_ID,
-      );
-      partialInvestorSharesAccount = sharesAta.address;
-
-      // Open window if closed (no-op if open).
-      try {
-        await program.methods
-          .openInvestmentWindow()
-          .accountsPartial({ manager: manager.publicKey, vault })
-          .signers([manager])
-          .rpc();
-      } catch (_) {
-        // Already open.
-      }
-
-      // Deposit → approve → claim to give investor shares.
-      await program.methods
-        .requestDeposit(partialDepositAmount)
-        .accountsPartial({
-          investor: partialInvestor.publicKey,
-          vault,
-          investmentRequest: partialInvRequest,
-          investorTokenAccount: partialInvestorTokenAccount,
-          depositVault,
-          assetMint,
-          attestation: partialAttestation,
-          assetTokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([partialInvestor])
-        .rpc();
-      await program.methods
-        .approveDeposit()
-        .accountsPartial({
-          manager: manager.publicKey,
-          vault,
-          investmentRequest: partialInvRequest,
-          investor: partialInvestor.publicKey,
-          sharesMint,
-          investorSharesAccount: partialInvestorSharesAccount,
-          depositVault,
-          assetMint,
-          oracleAccount: mockOracleData,
-          attestation: partialAttestation,
-          assetTokenProgram: TOKEN_PROGRAM_ID,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([manager])
-        .rpc();
-      await program.methods
-        .claimDeposit()
-        .accountsPartial({
-          investor: partialInvestor.publicKey,
-          vault,
-          investmentRequest: partialInvRequest,
-          sharesMint,
-          investorSharesAccount: partialInvestorSharesAccount,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          attestation: partialAttestation,
-        })
-        .signers([partialInvestor])
-        .rpc();
-
-      // Request full redemption.
-      const shares = await getAccount(
-        connection,
-        partialInvestorSharesAccount,
-        undefined,
-        TOKEN_2022_PROGRAM_ID,
-      );
-      await program.methods
-        .requestRedeem(new BN(shares.amount.toString()), new BN(0))
-        .accountsPartial({
-          investor: partialInvestor.publicKey,
-          vault,
-          redemptionRequest: partialRedRequest,
-          sharesMint,
-          investorSharesAccount: partialInvestorSharesAccount,
-          redemptionEscrow,
-          assetMint,
-          claimableTokens: partialClaimableTokens,
-          attestation: partialAttestation,
-          assetTokenProgram: TOKEN_PROGRAM_ID,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .remainingAccounts(requestRedeemHookExtras(partialInvestor.publicKey))
-        .signers([partialInvestor])
-        .rpc();
-    });
-
-    it("first half-ratio approve leaves request Pending with half fulfilled", async () => {
-      const requestBefore =
-        await program.account.redemptionRequest.fetch(partialRedRequest);
-      const totalShares = requestBefore.sharesLocked;
-
-      await program.methods
-        .approveRedeem(HALF_RATIO, new BN(0))
-        .accountsPartial({
-          manager: manager.publicKey,
-          vault,
-          redemptionRequest: partialRedRequest,
-          investor: partialInvestor.publicKey,
-          sharesMint,
-          redemptionEscrow,
-          depositVault,
-          assetMint,
-          claimableTokens: partialClaimableTokens,
-          oracleAccount: mockOracleData,
-          attestation: partialAttestation,
-          assetTokenProgram: TOKEN_PROGRAM_ID,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([manager])
-        .rpc();
-
-      const request =
-        await program.account.redemptionRequest.fetch(partialRedRequest);
-      expect(JSON.stringify(request.status)).to.equal(
-        JSON.stringify({ pending: {} }),
-      );
-      // floor(totalShares * 0.5e18 / 1e18) = totalShares / 2
-      const expectedHalf = totalShares.div(new BN(2));
-      expect(request.fulfilledSharesCumulative.toString()).to.equal(
-        expectedHalf.toString(),
-      );
-      expect(request.assetsClaimable.toNumber()).to.be.greaterThan(0);
-    });
-
-    it("rejects cancel_redeem after partial fulfillment", async () => {
-      try {
-        await program.methods
-          .cancelRedeem()
-          .accountsPartial({
-            investor: partialInvestor.publicKey,
-            vault,
-            redemptionRequest: partialRedRequest,
-            sharesMint,
-            assetMint,
-            claimableTokens: partialClaimableTokens,
-            investorSharesAccount: partialInvestorSharesAccount,
-            redemptionEscrow,
-            assetTokenProgram: TOKEN_PROGRAM_ID,
-            token2022Program: TOKEN_2022_PROGRAM_ID,
-            systemProgram: SystemProgram.programId,
-          })
-          .remainingAccounts(cancelRedeemHookExtras(partialInvestor.publicKey))
-          .signers([partialInvestor])
-          .rpc();
-        expect.fail("should have thrown RequestPartiallyFulfilled");
-      } catch (err: any) {
-        expect(err.error.errorCode.code).to.equal("RequestPartiallyFulfilled");
-      }
-    });
-
-    it("rejects reject_redeem after partial fulfillment", async () => {
-      try {
-        await program.methods
-          .rejectRedeem(0)
-          .accountsPartial({
-            manager: manager.publicKey,
-            vault,
-            redemptionRequest: partialRedRequest,
-            investor: partialInvestor.publicKey,
-            sharesMint,
-            assetMint,
-            claimableTokens: partialClaimableTokens,
-            investorSharesAccount: partialInvestorSharesAccount,
-            redemptionEscrow,
-            assetTokenProgram: TOKEN_PROGRAM_ID,
-            token2022Program: TOKEN_2022_PROGRAM_ID,
-            systemProgram: SystemProgram.programId,
-          })
-          .signers([manager])
-          .rpc();
-        expect.fail("should have thrown RequestPartiallyFulfilled");
-      } catch (err: any) {
-        expect(err.error.errorCode.code).to.equal("RequestPartiallyFulfilled");
-      }
-    });
-
-    it("second full-ratio approve completes the request", async () => {
-      const requestBefore =
-        await program.account.redemptionRequest.fetch(partialRedRequest);
-      const sharesLocked = requestBefore.sharesLocked;
-
-      await program.methods
-        .approveRedeem(FULL_FULFILLMENT_RATIO, new BN(0))
-        .accountsPartial({
-          manager: manager.publicKey,
-          vault,
-          redemptionRequest: partialRedRequest,
-          investor: partialInvestor.publicKey,
-          sharesMint,
-          redemptionEscrow,
-          depositVault,
-          assetMint,
-          claimableTokens: partialClaimableTokens,
-          oracleAccount: mockOracleData,
-          attestation: partialAttestation,
-          assetTokenProgram: TOKEN_PROGRAM_ID,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([manager])
-        .rpc();
-
-      const request =
-        await program.account.redemptionRequest.fetch(partialRedRequest);
-      expect(JSON.stringify(request.status)).to.equal(
-        JSON.stringify({ approved: {} }),
-      );
-      expect(request.fulfilledSharesCumulative.toString()).to.equal(
-        sharesLocked.toString(),
-      );
-    });
-  });
-
   describe("Redeem Rejection (hook extras)", () => {
     let rejInvestor: Keypair;
     let rejInvestorTokenAccount: PublicKey;
@@ -3362,7 +3069,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
       rejSharesBeforeReq = claimed.amount;
 
       await program.methods
-        .requestRedeem(new BN(rejSharesBeforeReq.toString()), new BN(0))
+        .requestRedeem(new BN(rejSharesBeforeReq.toString()))
         .accountsPartial({
           investor: rejInvestor.publicKey,
           vault,
@@ -3618,7 +3325,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
         TOKEN_2022_PROGRAM_ID,
       );
       await program.methods
-        .requestRedeem(new BN(sharesHeld.amount.toString()), new BN(0))
+        .requestRedeem(new BN(sharesHeld.amount.toString()))
         .accountsPartial({
           investor: inv.publicKey,
           vault,
@@ -3649,7 +3356,7 @@ describe("svs-11 (Credit Markets Vault)", () => {
 
       try {
         await program.methods
-          .approveRedeem(FULL_FULFILLMENT_RATIO, new BN(0))
+          .approveRedeem()
           .accountsPartial({
             manager: manager.publicKey,
             vault,
