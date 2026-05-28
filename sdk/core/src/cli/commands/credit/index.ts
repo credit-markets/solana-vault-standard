@@ -11,8 +11,6 @@ import { registerClaimRedeemCommand } from "./claim-redeem";
 import { registerCancelRedeemCommand } from "./cancel-redeem";
 import { registerRepayCommand } from "./repay";
 import { registerDrawDownCommand } from "./draw-down";
-import { registerFreezeAccountCommand } from "./freeze-account";
-import { registerUnfreezeAccountCommand } from "./unfreeze-account";
 import { registerInvestmentWindowCommand } from "./investment-window";
 import { registerSetOracleSourceCommand } from "./set-oracle-source";
 
@@ -34,8 +32,6 @@ export function registerCreditCommands(program: Command): void {
   registerCancelRedeemCommand(program);
   registerRepayCommand(program);
   registerDrawDownCommand(program);
-  registerFreezeAccountCommand(program);
-  registerUnfreezeAccountCommand(program);
   registerInvestmentWindowCommand(program);
   registerSetOracleSourceCommand(program);
 }

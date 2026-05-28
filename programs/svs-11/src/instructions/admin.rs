@@ -6,9 +6,9 @@ use crate::constants::{
 };
 use crate::error::VaultError;
 use crate::events::{
-    AttesterUpdated, AuthorityTransferRequested, AuthorityTransferred, ComplianceOfficerUpdated,
-    ManagerChanged, OracleChangeApplied, OracleChangeRequested, OracleConfigUpdated,
-    OracleSourceChanged, VaultConfigInitialized, VaultStatusChanged,
+    AttesterUpdated, AuthorityTransferRequested, AuthorityTransferred, ManagerChanged,
+    OracleChangeApplied, OracleChangeRequested, OracleConfigUpdated, OracleSourceChanged,
+    VaultConfigInitialized, VaultStatusChanged,
 };
 use crate::state::{CreditVault, VaultConfig};
 
@@ -358,9 +358,8 @@ pub fn initialize_vault_config_handler(ctx: Context<InitializeVaultConfig>) -> R
     vault_config.vault = ctx.accounts.vault.key();
     vault_config.pending_oracle = Pubkey::default();
     vault_config.oracle_change_at = 0;
-    vault_config.compliance_officer = Pubkey::default();
     vault_config.bump = ctx.bumps.vault_config;
-    vault_config._reserved = [0u8; 31];
+    vault_config._reserved = [0u8; 63];
 
     emit!(VaultConfigInitialized {
         vault: ctx.accounts.vault.key(),
@@ -487,51 +486,6 @@ pub fn apply_oracle_change_handler(ctx: Context<ApplyOracleChange>) -> Result<()
         vault: ctx.accounts.vault.key(),
         old_oracle,
         new_oracle,
-    });
-
-    Ok(())
-}
-
-// =============================================================================
-// Compliance officer management
-// =============================================================================
-
-#[derive(Accounts)]
-pub struct SetComplianceOfficer<'info> {
-    #[account(
-        constraint = authority.key() == vault.authority @ VaultError::Unauthorized,
-    )]
-    pub authority: Signer<'info>,
-
-    #[account(
-        seeds = [VAULT_SEED, vault.asset_mint.as_ref(), &vault.vault_id.to_le_bytes()],
-        bump = vault.bump,
-    )]
-    pub vault: Box<Account<'info, CreditVault>>,
-
-    #[account(
-        mut,
-        has_one = vault,
-        seeds = [VAULT_CONFIG_SEED, vault.key().as_ref()],
-        bump = vault_config.bump,
-    )]
-    pub vault_config: Box<Account<'info, VaultConfig>>,
-}
-
-pub fn set_compliance_officer_handler(
-    ctx: Context<SetComplianceOfficer>,
-    new_officer: Pubkey,
-) -> Result<()> {
-    require!(new_officer != Pubkey::default(), VaultError::InvalidAddress);
-
-    let vault_config = &mut ctx.accounts.vault_config;
-    let old_officer = vault_config.compliance_officer;
-    vault_config.compliance_officer = new_officer;
-
-    emit!(ComplianceOfficerUpdated {
-        vault: ctx.accounts.vault.key(),
-        old_officer,
-        new_officer,
     });
 
     Ok(())

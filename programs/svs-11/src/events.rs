@@ -115,19 +115,6 @@ pub struct DrawDown {
 }
 
 #[event]
-pub struct AccountFrozen {
-    pub vault: Pubkey,
-    pub investor: Pubkey,
-    pub frozen_by: Pubkey,
-}
-
-#[event]
-pub struct AccountUnfrozen {
-    pub vault: Pubkey,
-    pub investor: Pubkey,
-}
-
-#[event]
 pub struct VaultStatusChanged {
     pub vault: Pubkey,
     pub paused: bool,
@@ -214,11 +201,4 @@ pub struct OracleSourceChanged {
 pub struct VaultConfigInitialized {
     pub vault: Pubkey,
     pub vault_config: Pubkey,
-}
-
-#[event]
-pub struct ComplianceOfficerUpdated {
-    pub vault: Pubkey,
-    pub old_officer: Pubkey,
-    pub new_officer: Pubkey,
 }

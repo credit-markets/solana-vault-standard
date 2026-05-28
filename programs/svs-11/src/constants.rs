@@ -6,7 +6,6 @@ pub const REDEMPTION_ESCROW_SEED: &[u8] = b"redemption_escrow";
 pub const INVESTMENT_REQUEST_SEED: &[u8] = b"investment_request";
 pub const REDEMPTION_REQUEST_SEED: &[u8] = b"redemption_request";
 pub const CLAIMABLE_TOKENS_SEED: &[u8] = b"claimable_tokens";
-pub const FROZEN_ACCOUNT_SEED: &[u8] = b"frozen_account";
 pub const VAULT_CONFIG_SEED: &[u8] = b"vault_config";
 
 /// Seed for the per-pool NavAccount PDA in the nav-oracle program.

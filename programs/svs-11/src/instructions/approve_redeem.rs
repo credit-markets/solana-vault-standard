@@ -6,7 +6,7 @@ use anchor_spl::token_interface::{
 
 use crate::attestation::validate_attestation;
 use crate::constants::{
-    CLAIMABLE_TOKENS_SEED, FROZEN_ACCOUNT_SEED, NAV_ORACLE_PROGRAM_ID, NAV_ORACLE_SEED,
+    CLAIMABLE_TOKENS_SEED, COMPLIANCE_HOOK_PROGRAM_ID, NAV_ORACLE_PROGRAM_ID, NAV_ORACLE_SEED,
     ORACLE_SOURCE_MOCK, ORACLE_SOURCE_NAV_ORACLE, REDEMPTION_ESCROW_SEED, REDEMPTION_REQUEST_SEED,
     VAULT_SEED,
 };
@@ -91,10 +91,20 @@ pub struct ApproveRedeem<'info> {
     /// CHECK: Attestation validated in handler via validate_attestation
     pub attestation: UncheckedAccount<'info>,
 
-    /// CHECK: If data is non-empty, investor is frozen
+    /// Protocol-level singleton sanctions list (owned by compliance-hook).
     #[account(
-        seeds = [FROZEN_ACCOUNT_SEED, vault.key().as_ref(), investor.key().as_ref()],
+        seeds = [compliance_hook::state::SanctionsList::SEED_PREFIX],
         bump,
+        seeds::program = COMPLIANCE_HOOK_PROGRAM_ID,
+    )]
+    pub sanctions_list: Box<Account<'info, compliance_hook::state::SanctionsList>>,
+
+    /// CHECK: [b"frozen", investor] in compliance-hook. Existence (program-owned,
+    /// non-empty) = frozen. Validated by assert_wallet_compliant.
+    #[account(
+        seeds = [compliance_hook::state::FrozenAccount::SEED_PREFIX, investor.key().as_ref()],
+        bump,
+        seeds::program = COMPLIANCE_HOOK_PROGRAM_ID,
     )]
     pub frozen_check: UncheckedAccount<'info>,
 
@@ -113,10 +123,12 @@ pub fn handler(
     next_settlement_at: i64,
 ) -> Result<()> {
     require!(!ctx.accounts.vault.paused, VaultError::VaultPaused);
-    require!(
-        ctx.accounts.frozen_check.data_is_empty(),
-        VaultError::AccountFrozen
-    );
+
+    compliance_hook::assert_wallet_compliant(
+        &ctx.accounts.sanctions_list,
+        &ctx.accounts.frozen_check.to_account_info(),
+        &ctx.accounts.investor.key(),
+    )?;
 
     require!(
         batch_settlement_ratio_scaled > 0 && batch_settlement_ratio_scaled <= RATIO_SCALE_1E18,

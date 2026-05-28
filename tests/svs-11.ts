@@ -33,7 +33,6 @@ import {
   getInvestmentRequestAddress,
   getRedemptionRequestAddress,
   getClaimableTokensAddress,
-  getCreditFrozenAccountAddress,
 } from "../sdk/core/src/credit-vault-pda";
 import { resolveHookExtras } from "./helpers/hook-mint";
 
@@ -84,7 +83,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
   let investmentRequest: PublicKey;
   let redemptionRequest: PublicKey;
   let claimableTokens: PublicKey;
-  let frozenAccount: PublicKey;
   let attestation: PublicKey;
   let attester: Keypair;
   let attestationProgramId: PublicKey;
@@ -118,9 +116,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
 
   const getClaimableTokensPDA = (investorKey: PublicKey): [PublicKey, number] =>
     getClaimableTokensAddress(program.programId, vault, investorKey);
-
-  const getFrozenAccountPDA = (investorKey: PublicKey): [PublicKey, number] =>
-    getCreditFrozenAccountAddress(program.programId, vault, investorKey);
 
   const getOracleDataPDA = (vaultPda: PublicKey): [PublicKey, number] => {
     return PublicKey.findProgramAddressSync(
@@ -329,7 +324,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
     [investmentRequest] = getInvestmentRequestPDA(investor.publicKey);
     [redemptionRequest] = getRedemptionRequestPDA(investor.publicKey);
     [claimableTokens] = getClaimableTokensPDA(investor.publicKey);
-    [frozenAccount] = getFrozenAccountPDA(investor.publicKey);
     [attestation] = getAttestationPDA(investor.publicKey, attester.publicKey);
 
     [vaultConfig] = PublicKey.findProgramAddressSync(
@@ -670,7 +664,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             depositVault,
             assetMint,
             attestation,
-            frozenCheck: null,
             assetTokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
             clock: SYSVAR_CLOCK_PUBKEY,
@@ -710,7 +703,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -756,7 +748,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           // (mock) so this is unread; use program.programId as filler.
           navAccount: program.programId,
           attestation,
-          frozenCheck: null,
           clock: SYSVAR_CLOCK_PUBKEY,
         })
         .signers([manager])
@@ -810,7 +801,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
       );
 
       const [navRequest] = getInvestmentRequestPDA(navInvestor.publicKey);
-      const [navFrozen] = getFrozenAccountPDA(navInvestor.publicKey);
       const [navAttestation] = getAttestationPDA(
         navInvestor.publicKey,
         attester.publicKey,
@@ -847,7 +837,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             depositVault,
             assetMint,
             attestation: navAttestation,
-            frozenCheck: navFrozen,
             assetTokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
             clock: SYSVAR_CLOCK_PUBKEY,
@@ -865,7 +854,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             navOracle: mockOracleData,
             navAccount,
             attestation: navAttestation,
-            frozenCheck: navFrozen,
             clock: SYSVAR_CLOCK_PUBKEY,
           })
           .signers([manager])
@@ -919,9 +907,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
       const [missingNavRequest] = getInvestmentRequestPDA(
         missingNavInvestor.publicKey,
       );
-      const [missingNavFrozen] = getFrozenAccountPDA(
-        missingNavInvestor.publicKey,
-      );
       const [missingNavAttestation] = getAttestationPDA(
         missingNavInvestor.publicKey,
         attester.publicKey,
@@ -947,7 +932,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation: missingNavAttestation,
-          frozenCheck: missingNavFrozen,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -974,7 +958,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             navOracle: mockOracleData,
             navAccount: program.programId,
             attestation: missingNavAttestation,
-            frozenCheck: missingNavFrozen,
             clock: SYSVAR_CLOCK_PUBKEY,
           })
           .signers([manager])
@@ -1104,7 +1087,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation: rejectAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -1214,7 +1196,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation: cancelAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -1282,7 +1263,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           assetMint,
           claimableTokens,
           attestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -1330,7 +1310,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           navOracle: mockOracleData,
           navAccount: program.programId,
           attestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -1401,7 +1380,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -1419,7 +1397,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           navOracle: mockOracleData,
           navAccount: program.programId,
           attestation,
-          frozenCheck: null,
           clock: SYSVAR_CLOCK_PUBKEY,
         })
         .signers([manager])
@@ -1461,7 +1438,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           assetMint,
           claimableTokens,
           attestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -1573,73 +1549,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
       } catch (err: any) {
         expect(err.error.errorCode.code).to.equal("InsufficientLiquidity");
       }
-    });
-  });
-
-  describe("Compliance", () => {
-    it("manager freezes account", async () => {
-      await program.methods
-        .freezeAccount()
-        .accountsPartial({
-          caller: manager.publicKey,
-          vault,
-          vaultConfig,
-          investor: investor.publicKey,
-          frozenAccount,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([manager])
-        .rpc();
-
-      const frozen = await program.account.frozenAccount.fetch(frozenAccount);
-      expect(frozen.investor.toBase58()).to.equal(
-        investor.publicKey.toBase58(),
-      );
-      expect(frozen.frozenBy.toBase58()).to.equal(manager.publicKey.toBase58());
-    });
-
-    it("frozen account cannot request deposit", async () => {
-      [investmentRequest] = getInvestmentRequestPDA(investor.publicKey);
-
-      try {
-        await program.methods
-          .requestDeposit(depositAmount)
-          .accountsPartial({
-            investor: investor.publicKey,
-            vault,
-            investmentRequest,
-            investorTokenAccount,
-            depositVault,
-            assetMint,
-            attestation,
-            frozenCheck: frozenAccount,
-            assetTokenProgram: TOKEN_PROGRAM_ID,
-            systemProgram: SystemProgram.programId,
-            clock: SYSVAR_CLOCK_PUBKEY,
-          })
-          .signers([investor])
-          .rpc();
-        expect.fail("should have thrown");
-      } catch (err: any) {
-        expect(err.error.errorCode.code).to.equal("AccountFrozen");
-      }
-    });
-
-    it("manager unfreezes account", async () => {
-      await program.methods
-        .unfreezeAccount()
-        .accountsPartial({
-          caller: manager.publicKey,
-          vault,
-          vaultConfig,
-          frozenAccount,
-        })
-        .signers([manager])
-        .rpc();
-
-      const info = await connection.getAccountInfo(frozenAccount);
-      expect(info).to.be.null;
     });
   });
 
@@ -1842,7 +1751,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             depositVault,
             assetMint,
             attestation: zeroAttestation,
-            frozenCheck: null,
             assetTokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
             clock: SYSVAR_CLOCK_PUBKEY,
@@ -1913,7 +1821,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             depositVault,
             assetMint,
             attestation: smallAttestation,
-            frozenCheck: null,
             assetTokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
             clock: SYSVAR_CLOCK_PUBKEY,
@@ -1976,7 +1883,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             assetMint,
             claimableTokens: zeroClaimable,
             attestation: zeroAttestation,
-            frozenCheck: null,
             assetTokenProgram: TOKEN_PROGRAM_ID,
             token2022Program: TOKEN_2022_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
@@ -2112,7 +2018,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation: statusAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -2130,7 +2035,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: statusAttestation,
-          frozenCheck: null,
           clock: SYSVAR_CLOCK_PUBKEY,
         })
         .signers([manager])
@@ -2147,7 +2051,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             navOracle: mockOracleData,
             navAccount: program.programId,
             attestation: statusAttestation,
-            frozenCheck: null,
             clock: SYSVAR_CLOCK_PUBKEY,
           })
           .signers([manager])
@@ -2189,7 +2092,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation: statusAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -2229,7 +2131,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: statusAttestation,
-          frozenCheck: null,
           clock: SYSVAR_CLOCK_PUBKEY,
         })
         .signers([manager])
@@ -2355,7 +2256,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation: liqAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -2373,7 +2273,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: liqAttestation,
-          frozenCheck: null,
           clock: SYSVAR_CLOCK_PUBKEY,
         })
         .signers([manager])
@@ -2453,7 +2352,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           assetMint,
           claimableTokens: liqClaimableTokens,
           attestation: liqAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -2479,7 +2377,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             navOracle: mockOracleData,
             navAccount: program.programId,
             attestation: liqAttestation,
-            frozenCheck: null,
             assetTokenProgram: TOKEN_PROGRAM_ID,
             token2022Program: TOKEN_2022_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
@@ -2499,343 +2396,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           authority: payer.publicKey,
           vault,
         })
-        .rpc();
-    });
-  });
-
-  describe("Error Cases - Frozen Account on Approve", () => {
-    let frozenInvestor: Keypair;
-    let frozenInvestorTokenAccount: PublicKey;
-    let frozenInvestorSharesAccount: PublicKey;
-    let frozenInvRequest: PublicKey;
-    let frozenRedRequest: PublicKey;
-    let frozenInvAttestation: PublicKey;
-    let frozenInvFrozenAccount: PublicKey;
-    let frozenInvClaimableTokens: PublicKey;
-
-    before(async () => {
-      frozenInvestor = Keypair.generate();
-      const airdrop = await connection.requestAirdrop(
-        frozenInvestor.publicKey,
-        5 * anchor.web3.LAMPORTS_PER_SOL,
-      );
-      await connection.confirmTransaction(airdrop);
-
-      const ata = await getOrCreateAssociatedTokenAccount(
-        connection,
-        payer,
-        assetMint,
-        frozenInvestor.publicKey,
-        false,
-        undefined,
-        undefined,
-        TOKEN_PROGRAM_ID,
-      );
-      frozenInvestorTokenAccount = ata.address;
-
-      await mintTo(
-        connection,
-        payer,
-        assetMint,
-        frozenInvestorTokenAccount,
-        payer.publicKey,
-        BigInt(depositAmount.toString()) * BigInt(2),
-        [],
-        undefined,
-        TOKEN_PROGRAM_ID,
-      );
-
-      [frozenInvRequest] = getInvestmentRequestPDA(frozenInvestor.publicKey);
-      [frozenRedRequest] = getRedemptionRequestPDA(frozenInvestor.publicKey);
-      [frozenInvAttestation] = getAttestationPDA(
-        frozenInvestor.publicKey,
-        attester.publicKey,
-      );
-      [frozenInvFrozenAccount] = getFrozenAccountPDA(frozenInvestor.publicKey);
-      [frozenInvClaimableTokens] = getClaimableTokensPDA(
-        frozenInvestor.publicKey,
-      );
-
-      await attestationMockProgram.methods
-        .createAttestation(attester.publicKey, 0, [66, 82], FAR_FUTURE_EXPIRY)
-        .accountsPartial({
-          authority: payer.publicKey,
-          attestation: frozenInvAttestation,
-          subject: frozenInvestor.publicKey,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-
-      const frozenSharesAta = await getOrCreateAssociatedTokenAccount(
-        connection,
-        payer,
-        sharesMint,
-        frozenInvestor.publicKey,
-        false,
-        undefined,
-        undefined,
-        TOKEN_2022_PROGRAM_ID,
-      );
-      frozenInvestorSharesAccount = frozenSharesAta.address;
-
-      // Repay so the vault has liquidity for the redeem test
-      await program.methods
-        .repay(depositAmount)
-        .accountsPartial({
-          manager: manager.publicKey,
-          vault,
-          managerTokenAccount,
-          depositVault,
-          assetMint,
-          assetTokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .signers([manager])
-        .rpc();
-
-      // Update oracle to match vault's expected price
-      const vaultAfterRepay = await program.account.creditVault.fetch(vault);
-      if (vaultAfterRepay.totalShares.toNumber() > 0) {
-        const expectedPrice = new BN(
-          (
-            (BigInt(vaultAfterRepay.totalAssets.toString()) *
-              BigInt(PRICE_SCALE.toString())) /
-            BigInt(vaultAfterRepay.totalShares.toString())
-          ).toString(),
-        );
-        await oracleProgram.methods
-          .setPrice(expectedPrice)
-          .accountsPartial({
-            authority: payer.publicKey,
-            oracleData: mockOracleData,
-            vault: vault,
-            systemProgram: SystemProgram.programId,
-          })
-          .rpc();
-      }
-    });
-
-    it("rejects approve_deposit for frozen investor", async () => {
-      // Request deposit while unfrozen
-      await program.methods
-        .requestDeposit(depositAmount)
-        .accountsPartial({
-          investor: frozenInvestor.publicKey,
-          vault,
-          investmentRequest: frozenInvRequest,
-          investorTokenAccount: frozenInvestorTokenAccount,
-          depositVault,
-          assetMint,
-          attestation: frozenInvAttestation,
-          frozenCheck: null,
-          assetTokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([frozenInvestor])
-        .rpc();
-
-      // Freeze investor
-      await program.methods
-        .freezeAccount()
-        .accountsPartial({
-          caller: manager.publicKey,
-          vault,
-          vaultConfig,
-          investor: frozenInvestor.publicKey,
-          frozenAccount: frozenInvFrozenAccount,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([manager])
-        .rpc();
-
-      // Try approve with frozen check
-      try {
-        await program.methods
-          .approveDeposit()
-          .accountsPartial({
-            manager: manager.publicKey,
-            vault,
-            investmentRequest: frozenInvRequest,
-            investor: frozenInvestor.publicKey,
-            navOracle: mockOracleData,
-            navAccount: program.programId,
-            attestation: frozenInvAttestation,
-            frozenCheck: frozenInvFrozenAccount,
-            clock: SYSVAR_CLOCK_PUBKEY,
-          })
-          .signers([manager])
-          .rpc();
-        expect.fail("should have thrown");
-      } catch (err: any) {
-        expect(err.error.errorCode.code).to.equal("AccountFrozen");
-      }
-
-      // Clean up: unfreeze and reject deposit
-      await program.methods
-        .unfreezeAccount()
-        .accountsPartial({
-          caller: manager.publicKey,
-          vault,
-          vaultConfig,
-          frozenAccount: frozenInvFrozenAccount,
-        })
-        .signers([manager])
-        .rpc();
-
-      await program.methods
-        .rejectDeposit(0)
-        .accountsPartial({
-          manager: manager.publicKey,
-          vault,
-          investmentRequest: frozenInvRequest,
-          investor: frozenInvestor.publicKey,
-          depositVault,
-          investorTokenAccount: frozenInvestorTokenAccount,
-          assetMint,
-          assetTokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .signers([manager])
-        .rpc();
-    });
-
-    it("rejects approve_redeem for frozen investor", async () => {
-      // Deposit + approve + claim first to get shares
-      [frozenInvRequest] = getInvestmentRequestPDA(frozenInvestor.publicKey);
-
-      await program.methods
-        .requestDeposit(depositAmount)
-        .accountsPartial({
-          investor: frozenInvestor.publicKey,
-          vault,
-          investmentRequest: frozenInvRequest,
-          investorTokenAccount: frozenInvestorTokenAccount,
-          depositVault,
-          assetMint,
-          attestation: frozenInvAttestation,
-          frozenCheck: null,
-          assetTokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([frozenInvestor])
-        .rpc();
-
-      await program.methods
-        .approveDeposit()
-        .accountsPartial({
-          manager: manager.publicKey,
-          vault,
-          investmentRequest: frozenInvRequest,
-          investor: frozenInvestor.publicKey,
-          navOracle: mockOracleData,
-          navAccount: program.programId,
-          attestation: frozenInvAttestation,
-          frozenCheck: null,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([manager])
-        .rpc();
-
-      await program.methods
-        .claimDeposit()
-        .accountsPartial({
-          investor: frozenInvestor.publicKey,
-          vault,
-          investmentRequest: frozenInvRequest,
-          sharesMint,
-          investorSharesAccount: frozenInvestorSharesAccount,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          attestation: frozenInvAttestation,
-        })
-        .signers([frozenInvestor])
-        .rpc();
-
-      // Request redeem while unfrozen
-      const shares = await getAccount(
-        connection,
-        frozenInvestorSharesAccount,
-        undefined,
-        TOKEN_2022_PROGRAM_ID,
-      );
-
-      await program.methods
-        .requestRedeem(new BN(shares.amount.toString()), new BN(0))
-        .accountsPartial({
-          investor: frozenInvestor.publicKey,
-          vault,
-          redemptionRequest: frozenRedRequest,
-          sharesMint,
-          investorSharesAccount: frozenInvestorSharesAccount,
-          redemptionEscrow,
-          assetMint,
-          claimableTokens: frozenInvClaimableTokens,
-          attestation: frozenInvAttestation,
-          frozenCheck: null,
-          assetTokenProgram: TOKEN_PROGRAM_ID,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .remainingAccounts(requestRedeemHookExtras(frozenInvestor.publicKey))
-        .signers([frozenInvestor])
-        .rpc();
-
-      // Freeze investor
-      await program.methods
-        .freezeAccount()
-        .accountsPartial({
-          caller: manager.publicKey,
-          vault,
-          vaultConfig,
-          investor: frozenInvestor.publicKey,
-          frozenAccount: frozenInvFrozenAccount,
-          systemProgram: SystemProgram.programId,
-          clock: SYSVAR_CLOCK_PUBKEY,
-        })
-        .signers([manager])
-        .rpc();
-
-      // Try approve redeem with frozen check
-      try {
-        await program.methods
-          .approveRedeem(FULL_FULFILLMENT_RATIO, new BN(0))
-          .accountsPartial({
-            manager: manager.publicKey,
-            vault,
-            redemptionRequest: frozenRedRequest,
-            investor: frozenInvestor.publicKey,
-            sharesMint,
-            redemptionEscrow,
-            depositVault,
-            assetMint,
-            claimableTokens: frozenInvClaimableTokens,
-            navOracle: mockOracleData,
-            navAccount: program.programId,
-            attestation: frozenInvAttestation,
-            frozenCheck: frozenInvFrozenAccount,
-            assetTokenProgram: TOKEN_PROGRAM_ID,
-            token2022Program: TOKEN_2022_PROGRAM_ID,
-            systemProgram: SystemProgram.programId,
-            clock: SYSVAR_CLOCK_PUBKEY,
-          })
-          .signers([manager])
-          .rpc();
-        expect.fail("should have thrown");
-      } catch (err: any) {
-        expect(err.error.errorCode.code).to.equal("AccountFrozen");
-      }
-
-      // Clean up: unfreeze
-      await program.methods
-        .unfreezeAccount()
-        .accountsPartial({
-          caller: manager.publicKey,
-          vault,
-          vaultConfig,
-          frozenAccount: frozenInvFrozenAccount,
-        })
-        .signers([manager])
         .rpc();
     });
   });
@@ -2961,7 +2521,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation: tempAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -2981,7 +2540,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             navOracle: mockOracleData,
             navAccount: program.programId,
             attestation: tempAttestation,
-            frozenCheck: null,
             clock: SYSVAR_CLOCK_PUBKEY,
           })
           .signers([investor])
@@ -3081,7 +2639,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation: tempAttestation2,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -3143,32 +2700,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
         expect.fail("should have thrown");
       } catch (err: any) {
         expect(err.error).to.exist;
-      }
-    });
-
-    it("non-manager cannot freeze account", async () => {
-      const targetInvestor = Keypair.generate();
-      const [targetFrozen] = getFrozenAccountPDA(targetInvestor.publicKey);
-
-      try {
-        await program.methods
-          .freezeAccount()
-          .accountsPartial({
-            caller: investor.publicKey,
-            vault,
-            vaultConfig,
-            investor: targetInvestor.publicKey,
-            frozenAccount: targetFrozen,
-            systemProgram: SystemProgram.programId,
-            clock: SYSVAR_CLOCK_PUBKEY,
-          })
-          .signers([investor])
-          .rpc();
-        expect.fail("should have thrown");
-      } catch (err: any) {
-        expect(err.error.errorCode.code).to.equal(
-          "UnauthorizedComplianceAction",
-        );
       }
     });
 
@@ -3308,7 +2839,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation: staleAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -3341,7 +2871,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             navOracle: mockOracleData,
             navAccount: program.programId,
             attestation: staleAttestation,
-            frozenCheck: null,
             clock: SYSVAR_CLOCK_PUBKEY,
           })
           .signers([manager])
@@ -3388,7 +2917,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: staleAttestation,
-          frozenCheck: null,
           clock: SYSVAR_CLOCK_PUBKEY,
         })
         .signers([manager])
@@ -3504,7 +3032,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             depositVault,
             assetMint,
             attestation: expAttestation,
-            frozenCheck: null,
             assetTokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
             clock: SYSVAR_CLOCK_PUBKEY,
@@ -3595,7 +3122,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
             depositVault,
             assetMint,
             attestation: revAttestation,
-            frozenCheck: null,
             assetTokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
             clock: SYSVAR_CLOCK_PUBKEY,
@@ -3749,7 +3275,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation: partialAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -3770,7 +3295,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: partialAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -3811,7 +3335,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           assetMint,
           claimableTokens: partialClaimableTokens,
           attestation: partialAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -3842,7 +3365,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: partialAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -3936,7 +3458,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: partialAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -4040,7 +3561,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           depositVault,
           assetMint,
           attestation: rejAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           clock: SYSVAR_CLOCK_PUBKEY,
@@ -4061,7 +3581,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           navOracle: mockOracleData,
           navAccount: program.programId,
           attestation: rejAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -4103,7 +3622,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
           assetMint,
           claimableTokens: rejClaimableTokens,
           attestation: rejAttestation,
-          frozenCheck: null,
           assetTokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -4147,6 +3665,274 @@ describe("svs-11 (Credit Markets Vault)", () => {
 
       const info = await connection.getAccountInfo(rejRedRequest);
       expect(info).to.be.null;
+    });
+  });
+
+  describe("Protocol-level compliance", () => {
+    // Single source of truth: freeze + sanctions live in compliance-hook.
+    // mint_to (claim_deposit) and burn (approve_redeem) bypass the
+    // Token-2022 TransferHook, so SVS-11 asserts compliance directly.
+    let complianceHook: anchor.Program;
+    let sanctionsListPda: PublicKey;
+
+    const frozenPda = (wallet: PublicKey): PublicKey =>
+      PublicKey.findProgramAddressSync(
+        [Buffer.from("frozen"), wallet.toBuffer()],
+        COMPLIANCE_HOOK_PROGRAM_ID,
+      )[0];
+
+    before(async () => {
+      const complianceHookIdl = require("../target/idl/compliance_hook.json");
+      complianceHook = new anchor.Program(complianceHookIdl, provider);
+      [sanctionsListPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("sanctions_list")],
+        COMPLIANCE_HOOK_PROGRAM_ID,
+      );
+    });
+
+    async function provisionApprovedDeposit(
+      inv: Keypair,
+    ): Promise<{ invRequest: PublicKey; sharesAccount: PublicKey; att: PublicKey }> {
+      const airdrop = await connection.requestAirdrop(
+        inv.publicKey,
+        2 * anchor.web3.LAMPORTS_PER_SOL,
+      );
+      await connection.confirmTransaction(airdrop);
+
+      const [invRequest] = getInvestmentRequestPDA(inv.publicKey);
+      const [att] = getAttestationPDA(inv.publicKey, attester.publicKey);
+
+      await attestationMockProgram.methods
+        .createAttestation(attester.publicKey, 0, [66, 82], FAR_FUTURE_EXPIRY)
+        .accountsPartial({
+          authority: payer.publicKey,
+          attestation: att,
+          subject: inv.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      const investorAta = await getOrCreateAssociatedTokenAccount(
+        connection,
+        payer,
+        assetMint,
+        inv.publicKey,
+      );
+      const amount = new BN(1_000_000);
+      await mintTo(
+        connection,
+        payer,
+        assetMint,
+        investorAta.address,
+        payer,
+        amount.toNumber(),
+      );
+      const sharesAta = await getOrCreateAssociatedTokenAccount(
+        connection,
+        payer,
+        sharesMint,
+        inv.publicKey,
+        false,
+        undefined,
+        undefined,
+        TOKEN_2022_PROGRAM_ID,
+      );
+
+      try {
+        await program.methods
+          .openInvestmentWindow()
+          .accountsPartial({ manager: manager.publicKey, vault })
+          .signers([manager])
+          .rpc();
+      } catch (_) {
+        // Already open.
+      }
+
+      await program.methods
+        .requestDeposit(amount)
+        .accountsPartial({
+          investor: inv.publicKey,
+          vault,
+          investmentRequest: invRequest,
+          investorTokenAccount: investorAta.address,
+          depositVault,
+          assetMint,
+          attestation: att,
+          assetTokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .signers([inv])
+        .rpc();
+      await program.methods
+        .approveDeposit()
+        .accountsPartial({
+          manager: manager.publicKey,
+          vault,
+          investmentRequest: invRequest,
+          investor: inv.publicKey,
+          sharesMint,
+          investorSharesAccount: sharesAta.address,
+          depositVault,
+          assetMint,
+          navOracle: mockOracleData,
+          navAccount: program.programId,
+          attestation: att,
+          assetTokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .signers([manager])
+        .rpc();
+
+      return { invRequest, sharesAccount: sharesAta.address, att };
+    }
+
+    it("claim_deposit fails when the investor wallet is frozen at the protocol level", async () => {
+      const inv = Keypair.generate();
+      const { invRequest, sharesAccount, att } =
+        await provisionApprovedDeposit(inv);
+
+      const frozenAccount = frozenPda(inv.publicKey);
+      await complianceHook.methods
+        .freezeAccount()
+        .accounts({
+          sanctionsList: sanctionsListPda,
+          authority: payer.publicKey,
+          ownerToFreeze: inv.publicKey,
+          frozenAccount,
+          payer: payer.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([payer])
+        .rpc();
+
+      try {
+        await program.methods
+          .claimDeposit()
+          .accountsPartial({
+            investor: inv.publicKey,
+            vault,
+            investmentRequest: invRequest,
+            sharesMint,
+            investorSharesAccount: sharesAccount,
+            token2022Program: TOKEN_2022_PROGRAM_ID,
+            attestation: att,
+          })
+          .signers([inv])
+          .rpc();
+        expect.fail("should have thrown");
+      } catch (err: any) {
+        expect(err.error.errorCode.code).to.equal("AccountFrozen");
+      }
+
+      await complianceHook.methods
+        .unfreezeAccount()
+        .accounts({
+          sanctionsList: sanctionsListPda,
+          authority: payer.publicKey,
+          ownerToUnfreeze: inv.publicKey,
+          frozenAccount,
+          rentRecipient: payer.publicKey,
+        })
+        .signers([payer])
+        .rpc();
+    });
+
+    it("approve_redeem fails when the investor wallet is sanctioned", async () => {
+      const inv = Keypair.generate();
+      const { invRequest, sharesAccount, att } =
+        await provisionApprovedDeposit(inv);
+
+      await program.methods
+        .claimDeposit()
+        .accountsPartial({
+          investor: inv.publicKey,
+          vault,
+          investmentRequest: invRequest,
+          sharesMint,
+          investorSharesAccount: sharesAccount,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          attestation: att,
+        })
+        .signers([inv])
+        .rpc();
+
+      const [redRequest] = getRedemptionRequestPDA(inv.publicKey);
+      const [claimable] = getClaimableTokensPDA(inv.publicKey);
+      const sharesHeld = await getAccount(
+        connection,
+        sharesAccount,
+        undefined,
+        TOKEN_2022_PROGRAM_ID,
+      );
+      await program.methods
+        .requestRedeem(new BN(sharesHeld.amount.toString()), new BN(0))
+        .accountsPartial({
+          investor: inv.publicKey,
+          vault,
+          redemptionRequest: redRequest,
+          sharesMint,
+          investorSharesAccount: sharesAccount,
+          redemptionEscrow,
+          assetMint,
+          claimableTokens: claimable,
+          attestation: att,
+          assetTokenProgram: TOKEN_PROGRAM_ID,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .remainingAccounts(requestRedeemHookExtras(inv.publicKey))
+        .signers([inv])
+        .rpc();
+
+      await complianceHook.methods
+        .updateSanctionsList([inv.publicKey], [])
+        .accounts({
+          sanctionsList: sanctionsListPda,
+          authority: payer.publicKey,
+        })
+        .signers([payer])
+        .rpc();
+
+      try {
+        await program.methods
+          .approveRedeem(FULL_FULFILLMENT_RATIO, new BN(0))
+          .accountsPartial({
+            manager: manager.publicKey,
+            vault,
+            redemptionRequest: redRequest,
+            investor: inv.publicKey,
+            sharesMint,
+            redemptionEscrow,
+            depositVault,
+            assetMint,
+            claimableTokens: claimable,
+            navOracle: mockOracleData,
+            navAccount: program.programId,
+            attestation: att,
+            assetTokenProgram: TOKEN_PROGRAM_ID,
+            token2022Program: TOKEN_2022_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            clock: SYSVAR_CLOCK_PUBKEY,
+          })
+          .signers([manager])
+          .rpc();
+        expect.fail("should have thrown");
+      } catch (err: any) {
+        expect(err.error.errorCode.code).to.equal("SanctionedAddress");
+      }
+
+      await complianceHook.methods
+        .updateSanctionsList([], [inv.publicKey])
+        .accounts({
+          sanctionsList: sanctionsListPda,
+          authority: payer.publicKey,
+        })
+        .signers([payer])
+        .rpc();
     });
   });
 });

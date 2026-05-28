@@ -4,6 +4,7 @@ pub mod attestation;
 pub mod constants;
 pub mod error;
 pub mod events;
+pub mod hook_extras;
 pub mod instructions;
 pub mod math;
 pub mod oracle;
@@ -141,16 +142,6 @@ pub mod svs_11 {
         instructions::draw_down::handler(ctx, amount)
     }
 
-    /// Freeze an investor account for compliance.
-    pub fn freeze_account(ctx: Context<FreezeAccount>) -> Result<()> {
-        instructions::compliance::freeze_handler(ctx)
-    }
-
-    /// Unfreeze a previously frozen investor account.
-    pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
-        instructions::compliance::unfreeze_handler(ctx)
-    }
-
     /// Switch CreditVault oracle read path between the simple/mock oracle
     /// (0, neutral upstream default) and the optional NavOracle adapter (1,
     /// rich credit-market NAV). Authority-gated; does not mutate `nav_oracle`
@@ -233,14 +224,6 @@ pub mod svs_11 {
     /// Apply a pending oracle change after timelock expires.
     pub fn apply_oracle_change(ctx: Context<ApplyOracleChange>) -> Result<()> {
         instructions::admin::apply_oracle_change_handler(ctx)
-    }
-
-    /// Set or update the compliance officer for freeze/unfreeze operations.
-    pub fn set_compliance_officer(
-        ctx: Context<SetComplianceOfficer>,
-        new_officer: Pubkey,
-    ) -> Result<()> {
-        instructions::admin::set_compliance_officer_handler(ctx, new_officer)
     }
 
     // =========================================================================

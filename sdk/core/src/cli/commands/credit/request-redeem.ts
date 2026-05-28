@@ -91,7 +91,6 @@ export function registerRequestRedeemCommand(program: Command): void {
           shares,
           attestation,
           undefined,
-          undefined,
           remainingAccounts,
         );
 

@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 
 use crate::attestation::validate_attestation;
 use crate::constants::{
-    FROZEN_ACCOUNT_SEED, INVESTMENT_REQUEST_SEED, NAV_ORACLE_PROGRAM_ID, NAV_ORACLE_SEED,
-    ORACLE_SOURCE_MOCK, ORACLE_SOURCE_NAV_ORACLE, VAULT_SEED,
+    INVESTMENT_REQUEST_SEED, NAV_ORACLE_PROGRAM_ID, NAV_ORACLE_SEED, ORACLE_SOURCE_MOCK,
+    ORACLE_SOURCE_NAV_ORACLE, VAULT_SEED,
 };
 use crate::error::VaultError;
 use crate::events::InvestmentApproved;
@@ -52,13 +52,6 @@ pub struct ApproveDeposit<'info> {
     /// CHECK: Attestation validated in handler via validate_attestation
     pub attestation: UncheckedAccount<'info>,
 
-    /// CHECK: If data is non-empty, investor is frozen
-    #[account(
-        seeds = [FROZEN_ACCOUNT_SEED, vault.key().as_ref(), investor.key().as_ref()],
-        bump,
-    )]
-    pub frozen_check: UncheckedAccount<'info>,
-
     pub clock: Sysvar<'info, Clock>,
 }
 
@@ -67,10 +60,6 @@ pub fn handler(ctx: Context<ApproveDeposit>) -> Result<()> {
     require!(
         ctx.accounts.vault.investment_window_open,
         VaultError::InvestmentWindowClosed
-    );
-    require!(
-        ctx.accounts.frozen_check.data_is_empty(),
-        VaultError::AccountFrozen
     );
 
     validate_attestation(

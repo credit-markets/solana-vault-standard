@@ -44,9 +44,6 @@ pub enum VaultError {
     #[msg("Invalid address: cannot be the zero address")]
     InvalidAddress,
 
-    #[msg("Account is frozen")]
-    AccountFrozen,
-
     #[msg("Attestation account not owned by attestation program")]
     InvalidAttestationProgram,
 
@@ -118,11 +115,6 @@ pub enum VaultError {
 
     #[msg("Oracle program is not a known oracle (Pyth or Switchboard)")]
     InvalidOracleProgram,
-
-    #[msg(
-        "Unauthorized compliance action: caller is not authority, manager, or compliance officer"
-    )]
-    UnauthorizedComplianceAction,
 
     #[msg("No pending authority transfer")]
     NoPendingTransfer,
