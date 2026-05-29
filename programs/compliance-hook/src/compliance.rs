@@ -4,10 +4,10 @@
 //! Callers surface the singleton `SanctionsList` ([b"sanctions_list"]) and
 //! the wallet-global `FrozenAccount` ([b"frozen", wallet]) via
 //! `seeds::program = COMPLIANCE_HOOK_PROGRAM_ID`, then call this helper.
-//! Freeze semantic matches `execute.rs`: lamports > 0 && !data_is_empty()
-//! AND the PDA is owned by this program (a forged empty-owner account must
-//! not pass as "frozen", nor a non-program account masquerade as "not
-//! frozen").
+//! Freeze semantic is `execute.rs`'s existence check (lamports > 0 &&
+//! !data_is_empty()) made STRICTER with an explicit `owner == this program`
+//! requirement — a forged empty-owner account must not pass as "frozen", nor
+//! a non-program account masquerade as "not frozen".
 
 use anchor_lang::prelude::*;
 
