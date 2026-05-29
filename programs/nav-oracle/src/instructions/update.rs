@@ -111,11 +111,7 @@ pub fn handler(ctx: Context<UpdateNav>, args: UpdateArgs) -> Result<()> {
         NavOracleError::InvalidSignature
     );
 
-    // (B) consecutive-price deviation guard. Genesis (last_published_nav == 0)
-    // has no prior value to compare against, so the check is SKIPPED on the
-    // first-ever publish — by design, the first NAV is publisher-trusted.
-    // This is the bound the vault used to enforce; each oracle now self-checks
-    // it (pluggable-oracle integrity lives in the implementation).
+    // Consecutive-price deviation guard (genesis last_published_nav == 0 skips).
     check_deviation(nav.last_published_nav, args.nav_net, nav.max_deviation_bps)?;
 
     let staged = NavAccount {
@@ -131,9 +127,7 @@ pub fn handler(ctx: Context<UpdateNav>, args: UpdateArgs) -> Result<()> {
         publisher: nav.publisher,
         signature: args.signature,
         loan_tape_merkle_root: args.loan_tape_merkle_root,
-        // New baseline, committed atomically with the rest of the state.
         last_published_nav: args.nav_net,
-        // Preserve the init-only configured ceiling (never publisher-attested).
         max_deviation_bps: nav.max_deviation_bps,
     };
     require!(

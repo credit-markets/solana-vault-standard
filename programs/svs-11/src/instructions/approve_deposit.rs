@@ -59,9 +59,6 @@ pub fn handler(ctx: Context<ApproveDeposit>) -> Result<()> {
         &ctx.accounts.clock,
     )?;
 
-    // Generic pluggable-oracle read. The vault trusts exactly one configured
-    // oracle account (address + owner program); the 24-byte SvsOraclePrice
-    // header is range-checked by the shared svs-oracle reader.
     require!(
         ctx.accounts.oracle_account.key() == ctx.accounts.vault.nav_oracle,
         VaultError::OracleInvalidPrice
@@ -86,13 +83,8 @@ pub fn handler(ctx: Context<ApproveDeposit>) -> Result<()> {
     };
     let price = header.price;
 
-    // Oracle integrity (positive price, staleness, sequence monotonicity, and
-    // consecutive-price deviation) is enforced by the oracle itself + the
-    // generic svs_oracle::read_oracle above. The vault does NOT re-derive a
-    // price from its own books: `total_assets` is idle cash only (draw_down
-    // deploys capital off-chain), so `total_assets / total_shares` is not the
-    // NAV — AUM is `total_shares * oracle price`. A books-vs-oracle deviation
-    // guard here would falsely trip on any vault that has deployed capital.
+    // No books-vs-oracle deviation guard: total_assets is idle cash, not NAV
+    // (draw_down deploys capital), so it would falsely trip once deployed.
 
     let amount_locked = ctx.accounts.investment_request.amount_locked;
     let shares = math::assets_to_shares(amount_locked, price)?;
@@ -125,8 +117,7 @@ pub fn handler(ctx: Context<ApproveDeposit>) -> Result<()> {
         .checked_add(amount_locked)
         .ok_or(VaultError::MathOverflow)?;
 
-    // Advance the monotonic sequence only when the oracle uses sequencing
-    // (`sequence != 0`). A sentinel `0` (e.g. mock-oracle) skips the bump.
+    // sequence == 0 is the "unused" sentinel; don't advance on it.
     if header.sequence != 0 {
         vault.last_seen_nav_sequence = header.sequence;
     }

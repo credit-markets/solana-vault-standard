@@ -24,20 +24,17 @@ pub struct RotatePublisher<'info> {
 }
 
 pub fn handler(ctx: Context<RotatePublisher>) -> Result<()> {
-    // 1. pool must be an SVS-11 CreditVault.
     require!(
         ctx.accounts.pool.owner == &SVS_11_PROGRAM_ID,
         NavOracleError::PoolAccountInvalid
     );
 
-    // 2. reject empty/short pool data (do NOT copy initialize.rs's len<40 skip).
     let pool_data = ctx.accounts.pool.try_borrow_data()?;
     require!(pool_data.len() >= 40, NavOracleError::PoolAccountInvalid);
 
-    // 3. live authority read at bytes 8..40 (CreditVault.authority).
-    // CreditVault.authority lives at pool bytes 8..40 (Anchor disc + first field).
-    // Guarded producing-side by SVS-11's
-    // credit_vault_authority_offset_stable_for_nav_oracle_gate.
+    // CreditVault.authority lives at pool bytes 8..40 (Anchor disc + first
+    // field); guarded producing-side by SVS-11's
+    // credit_vault_authority_offset_stable_for_nav_oracle_gate test.
     let authority_bytes: [u8; 32] = pool_data[8..40]
         .try_into()
         .map_err(|_| error!(NavOracleError::PoolAccountInvalid))?;

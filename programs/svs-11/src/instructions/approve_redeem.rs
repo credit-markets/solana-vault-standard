@@ -130,7 +130,6 @@ pub fn handler(ctx: Context<ApproveRedeem>) -> Result<()> {
         &ctx.accounts.clock,
     )?;
 
-    // Generic pluggable-oracle read (see approve_deposit for the contract).
     require!(
         ctx.accounts.oracle_account.key() == ctx.accounts.vault.nav_oracle,
         VaultError::OracleInvalidPrice
@@ -155,13 +154,9 @@ pub fn handler(ctx: Context<ApproveRedeem>) -> Result<()> {
     };
     let price = header.price;
 
-    // No vault-derived (books-vs-oracle) deviation guard: `total_assets` is
-    // idle cash only (draw_down deploys capital off-chain), so it is not the
-    // NAV. Oracle integrity is the oracle's own responsibility (read_oracle +
-    // the oracle's consecutive-price guard). See approve_deposit for rationale.
+    // No books-vs-oracle deviation guard — see approve_deposit.
 
-    // Full-approval: burn ALL locked shares and pay out their asset value
-    // atomically. No partial/pro-rata path.
+    // Full-approval: burn ALL locked shares, pay out their full asset value.
     let shares_locked = ctx.accounts.redemption_request.shares_locked;
     require!(shares_locked > 0, VaultError::ZeroAmount);
 
@@ -247,7 +242,7 @@ pub fn handler(ctx: Context<ApproveRedeem>) -> Result<()> {
         .checked_sub(1)
         .ok_or(VaultError::MathOverflow)?;
 
-    // Advance the monotonic sequence only when the oracle uses sequencing.
+    // sequence == 0 is the "unused" sentinel; don't advance on it.
     if header.sequence != 0 {
         vault.last_seen_nav_sequence = header.sequence;
     }

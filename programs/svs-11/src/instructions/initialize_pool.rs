@@ -311,10 +311,6 @@ pub fn handler(
     vault.required_attestation_type = 0;
     vault._reserved = [0u8; 23];
 
-    // Pluggable-oracle defaults. The vault reads `nav_oracle` (the configured
-    // oracle account) through the generic SvsOraclePrice header; any
-    // compliant oracle (mock-oracle, nav-oracle, third-party) works. The
-    // address + owner program are set above and rotated via the timelock.
     vault.last_seen_nav_sequence = 0;
     vault._padding_oracle = [0u8; 24];
 
