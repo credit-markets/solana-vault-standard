@@ -43,7 +43,6 @@ pub struct CreditVault {
     pub redemption_escrow_bump: u8,
     pub paused: bool,
     pub total_approved_deposits: u64,
-    pub max_deviation_bps: u16,
     /// Pending authority for two-step transfer (default = Pubkey::default() means none)
     pub pending_authority: Pubkey,
     /// Number of pending (not yet approved/rejected/cancelled) redemption requests
@@ -99,7 +98,6 @@ impl CreditVault {
         1 +   // redemption_escrow_bump
         1 +   // paused
         8 +   // total_approved_deposits
-        2 +   // max_deviation_bps
         32 +  // pending_authority
         8 +   // total_pending_redeems
         1 +   // required_attestation_type
@@ -151,7 +149,6 @@ mod credit_vault_layout_tests {
             redemption_escrow_bump: 254,
             paused: false,
             total_approved_deposits: 0,
-            max_deviation_bps: 500,
             pending_authority: Pubkey::default(),
             total_pending_redeems: 0,
             required_attestation_type: 0,

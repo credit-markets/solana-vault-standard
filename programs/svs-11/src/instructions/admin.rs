@@ -1,8 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::constants::{
-    DEFAULT_MAX_NAV_STALENESS_SECS, MAX_DEVIATION_BPS_CAP, ORACLE_TIMELOCK, VAULT_CONFIG_SEED,
-    VAULT_SEED,
+    DEFAULT_MAX_NAV_STALENESS_SECS, ORACLE_TIMELOCK, VAULT_CONFIG_SEED, VAULT_SEED,
 };
 use crate::error::VaultError;
 use crate::events::{
@@ -250,31 +249,23 @@ pub struct UpdateOracleParams<'info> {
     pub vault: Box<Account<'info, CreditVault>>,
 }
 
-/// Update non-address oracle parameters (max_staleness, max_deviation_bps).
-/// Oracle address and program changes must use the timelock flow.
+/// Update the non-address oracle staleness window. Oracle address and program
+/// changes must use the timelock flow; per-oracle integrity (e.g. price
+/// deviation) lives in the oracle program, not the vault.
 pub fn update_oracle_params_handler(
     ctx: Context<UpdateOracleParams>,
     new_max_staleness: Option<i64>,
-    new_max_deviation_bps: Option<u16>,
 ) -> Result<()> {
     let vault = &mut ctx.accounts.vault;
 
     if let Some(staleness) = new_max_staleness {
         // Ceiling is the NAV staleness window (45 days), not 24h — `max_staleness`
-        // is now the single oracle staleness config after the mock/nav collapse.
+        // is the single oracle staleness config after the mock/nav collapse.
         require!(
             (60..=DEFAULT_MAX_NAV_STALENESS_SECS).contains(&staleness),
             VaultError::InvalidStalenessConfig
         );
         vault.max_staleness = staleness;
-    }
-
-    if let Some(deviation_bps) = new_max_deviation_bps {
-        require!(
-            deviation_bps <= MAX_DEVIATION_BPS_CAP,
-            VaultError::MaxDeviationTooHigh
-        );
-        vault.max_deviation_bps = deviation_bps;
     }
 
     emit!(OracleConfigUpdated {

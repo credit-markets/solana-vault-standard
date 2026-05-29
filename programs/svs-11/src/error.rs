@@ -68,9 +68,6 @@ pub enum VaultError {
     #[msg("Oracle account owner does not match vault.oracle_program")]
     OracleInvalidProgram,
 
-    #[msg("Oracle price deviation exceeds max_deviation_bps")]
-    OracleDeviationExceeded,
-
     #[msg("Deposit would exceed global vault cap")]
     GlobalCapExceeded,
 
@@ -109,9 +106,6 @@ pub enum VaultError {
 
     #[msg("No pending oracle change")]
     OracleChangeNotRequested,
-
-    #[msg("Max deviation exceeds 2000 bps")]
-    MaxDeviationTooHigh,
 
     #[msg("Oracle program is not a known oracle (Pyth or Switchboard)")]
     InvalidOracleProgram,

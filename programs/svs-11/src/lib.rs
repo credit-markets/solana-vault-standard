@@ -166,17 +166,12 @@ pub mod svs_11 {
         instructions::admin::update_attester_handler(ctx, new_attester, new_attestation_program)
     }
 
-    /// Update oracle non-address parameters (staleness, deviation) without timelock.
+    /// Update the oracle staleness window (non-address param, no timelock).
     pub fn update_oracle_params(
         ctx: Context<UpdateOracleParams>,
         new_max_staleness: Option<i64>,
-        new_max_deviation_bps: Option<u16>,
     ) -> Result<()> {
-        instructions::admin::update_oracle_params_handler(
-            ctx,
-            new_max_staleness,
-            new_max_deviation_bps,
-        )
+        instructions::admin::update_oracle_params_handler(ctx, new_max_staleness)
     }
 
     /// Initialize the vault config PDA for oracle timelock.

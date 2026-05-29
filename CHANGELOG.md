@@ -50,6 +50,16 @@ hardening" pass below (noted inline where reversed).
 - The oracle timelock now rotates the oracle account **and** its owner
   program atomically (`request_oracle_change` gains a `new_oracle_program`
   arg; `VaultConfig` gains `pending_oracle_program`).
+- **Removed the vault-derived (books-vs-oracle) deviation guard.** SVS-11 no
+  longer re-derives a price from `total_assets / total_shares` to bound the
+  oracle: `total_assets` tracks idle cash (draw_down deploys capital
+  off-chain), so it is not the NAV, and AUM is `total_shares * oracle price`.
+  The old guard would have falsely tripped `OracleDeviationExceeded` on any
+  vault that had deployed capital, blocking all deposits/redemptions. Deleted
+  `CreditVault.max_deviation_bps`, its `update_oracle_params` parameter, the
+  `OracleDeviationExceeded` / `MaxDeviationTooHigh` errors, and the
+  `DEFAULT_MAX_DEVIATION_BPS` / `MAX_DEVIATION_BPS_CAP` constants. Price
+  integrity is now wholly the oracle's responsibility.
 - **Consecutive-price deviation guard moved into nav-oracle** (each oracle
   self-validates integrity). `nav-oracle::initialize` now takes
   `InitializeNavArgs { max_deviation_bps }` (must be > 0); new errors

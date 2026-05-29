@@ -155,20 +155,10 @@ pub fn handler(ctx: Context<ApproveRedeem>) -> Result<()> {
     };
     let price = header.price;
 
-    // Deviation: compare oracle price against vault-derived expected price.
-    let vault = &ctx.accounts.vault;
-    if vault.total_shares > 0 && vault.total_assets > 0 {
-        let expected_price_u128 = (vault.total_assets as u128)
-            .checked_mul(svs_oracle::PRICE_SCALE as u128)
-            .and_then(|v| v.checked_div(vault.total_shares as u128))
-            .ok_or(VaultError::MathOverflow)?;
-        require!(
-            expected_price_u128 <= u64::MAX as u128,
-            VaultError::MathOverflow
-        );
-        svs_oracle::validate_deviation(price, expected_price_u128 as u64, vault.max_deviation_bps)
-            .map_err(|_| VaultError::OracleDeviationExceeded)?;
-    }
+    // No vault-derived (books-vs-oracle) deviation guard: `total_assets` is
+    // idle cash only (draw_down deploys capital off-chain), so it is not the
+    // NAV. Oracle integrity is the oracle's own responsibility (read_oracle +
+    // the oracle's consecutive-price guard). See approve_deposit for rationale.
 
     // Full-approval: burn ALL locked shares and pay out their asset value
     // atomically. No partial/pro-rata path.

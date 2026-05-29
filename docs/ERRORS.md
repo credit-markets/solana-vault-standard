@@ -146,8 +146,7 @@ These errors live in the SVS-11 `VaultError` enum and back the pluggable oracle 
 | `OracleStale` | Oracle price data is stale | Oracle timestamp older than `max_staleness` |
 | `OracleInvalidPrice` | Oracle price is invalid | Oracle reports a zero or otherwise invalid price |
 | `OracleInvalidProgram` | Oracle account owner does not match vault.oracle_program | Oracle account not owned by the configured oracle program |
-| `OracleDeviationExceeded` | Oracle price deviation exceeds max_deviation_bps | Read price deviates beyond `max_deviation_bps` |
-| `OracleSequenceStale` | NAV oracle sequence has not advanced (replay) | Oracle header sequence not strictly greater than last seen |
+| `OracleSequenceStale` | Oracle sequence has not advanced (replay) | Oracle header sequence not strictly greater than last seen |
 | `InvalidMintAccount` | Mint account does not deserialize as a valid Token-2022 mint | Shares mint fails Token-2022 deserialization |
 | `HookExtrasMismatch` | remaining_accounts do not match the shares mint's ExtraAccountMetaList | Hook extras wrong order, missing accounts, or stale hook config |
 

@@ -2048,31 +2048,23 @@ describe("svs-11 (Credit Markets Vault)", () => {
         .signers([liqInvestor])
         .rpc();
 
-      // Increase max_deviation_bps to allow oracle price mismatch after drawdown
-      await program.methods
-        .updateOracleParams(null, 2000)
-        .accountsPartial({
-          authority: payer.publicKey,
-          vault,
-        })
-        .rpc();
-
-      // Draw down most assets. The oracle stays at PRICE_SCALE (1:1) while vault's
-      // actual price drops. With max_deviation_bps=2000, the deviation check passes
-      // as long as drawdown is < ~16.6% of total_assets. The redeem will use the
-      // oracle price (PRICE_SCALE) to calculate net_assets, which will exceed
-      // the reduced available balance → InsufficientLiquidity.
+      // Draw down most of the idle liquidity to deploy it as off-chain credit.
+      // There is NO deviation-bps workaround any more: the vault-derived
+      // books-vs-oracle deviation guard was removed (total_assets tracks idle
+      // cash, AUM = shares * oracle price), so approve-after-drawdown is no
+      // longer blocked by a false deviation trip — it now fails only on the
+      // real liquidity boundary, which is exactly what this test exercises.
       const vaultAccount = await program.account.creditVault.fetch(vault);
       const depositVaultInfo = await getAccount(connection, depositVault);
       const available =
         BigInt(depositVaultInfo.amount.toString()) -
         BigInt(vaultAccount.totalPendingDeposits.toString()) -
         BigInt(vaultAccount.totalApprovedDeposits.toString());
-      // Draw down ~15% of total_assets to stay within 2000bps deviation
-      const totalAssets = BigInt(vaultAccount.totalAssets.toString());
-      const drawAmount = (totalAssets * BigInt(15)) / BigInt(100);
+      // Deploy 90% of idle liquidity so the full-share redeem payout exceeds
+      // what remains in the vault → InsufficientLiquidity on approve_redeem.
+      const drawAmount = (available * BigInt(90)) / BigInt(100);
 
-      if (drawAmount > BigInt(0) && drawAmount < available) {
+      if (drawAmount > BigInt(0)) {
         await program.methods
           .drawDown(new BN(drawAmount.toString()))
           .accountsPartial({
@@ -2143,15 +2135,6 @@ describe("svs-11 (Credit Markets Vault)", () => {
       } catch (err: any) {
         expect(err.error.errorCode.code).to.equal("InsufficientLiquidity");
       }
-
-      // Restore max_deviation_bps to default (500)
-      await program.methods
-        .updateOracleParams(null, 500)
-        .accountsPartial({
-          authority: payer.publicKey,
-          vault,
-        })
-        .rpc();
     });
   });
 

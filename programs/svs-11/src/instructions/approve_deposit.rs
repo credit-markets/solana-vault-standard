@@ -86,22 +86,13 @@ pub fn handler(ctx: Context<ApproveDeposit>) -> Result<()> {
     };
     let price = header.price;
 
-    let vault = &ctx.accounts.vault;
-    if vault.total_shares > 0 && vault.total_assets > 0 {
-        let expected_price_u128 = (vault.total_assets as u128)
-            .checked_mul(svs_oracle::PRICE_SCALE as u128)
-            .and_then(|v| v.checked_div(vault.total_shares as u128))
-            .ok_or(VaultError::MathOverflow)?;
-        require!(
-            expected_price_u128 <= u64::MAX as u128,
-            VaultError::MathOverflow
-        );
-        svs_oracle::validate_deviation(price, expected_price_u128 as u64, vault.max_deviation_bps)
-            .map_err(|_| VaultError::OracleDeviationExceeded)?;
-    }
-    // Oracle price validity (staleness, positive price, sequence) is always
-    // enforced by the generic svs_oracle::read_oracle above, even on the first
-    // deposit when there is no on-chain expected price to compare against.
+    // Oracle integrity (positive price, staleness, sequence monotonicity, and
+    // consecutive-price deviation) is enforced by the oracle itself + the
+    // generic svs_oracle::read_oracle above. The vault does NOT re-derive a
+    // price from its own books: `total_assets` is idle cash only (draw_down
+    // deploys capital off-chain), so `total_assets / total_shares` is not the
+    // NAV — AUM is `total_shares * oracle price`. A books-vs-oracle deviation
+    // guard here would falsely trip on any vault that has deployed capital.
 
     let amount_locked = ctx.accounts.investment_request.amount_locked;
     let shares = math::assets_to_shares(amount_locked, price)?;
