@@ -239,7 +239,10 @@ Oracle changes go through a timelock (`request_oracle_change` /
 oracle account AND its owner program atomically: `request_oracle_change` takes a
 `new_oracle` account and a `new_oracle_program` arg, staging them into
 `pending_oracle` / `pending_oracle_program`; `apply_oracle_change` commits both
-to `vault.nav_oracle` / `vault.oracle_program` once the timelock elapses. This
+to `vault.nav_oracle` / `vault.oracle_program` once the timelock elapses.
+`request_oracle_change` cross-checks the pair at stage time (the new oracle
+account must be owned by the new program), so a mismatched pair fails fast
+instead of bricking approvals after the timelock. This
 lets a deployment migrate from one oracle implementation (e.g. `mock-oracle`) to
 another (e.g. the Credit Markets `nav-oracle`) without changing the core
 deposit/redeem state machine.

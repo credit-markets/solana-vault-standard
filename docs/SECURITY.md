@@ -62,7 +62,7 @@
 ### 14. Oracle Rotation Hygiene (svs-11)
 **Vector:** A vault is repointed to a malicious or unprovisioned oracle account/program out from under in-flight requests.
 
-**Mitigation:** Oracle rotation is timelocked — `request_oracle_change` stages `pending_oracle` + `pending_oracle_program` and `apply_oracle_change` only lands the swap after the timelock elapses, rotating the oracle account and its owner program together. The staleness window updates without timelock via `update_oracle_params` (price-deviation integrity is the oracle's own concern, not a vault parameter). Each read validates `oracle_account.key() == vault.nav_oracle` and `oracle_account.owner == vault.oracle_program`.
+**Mitigation:** Oracle rotation is timelocked — `request_oracle_change` stages `pending_oracle` + `pending_oracle_program` (cross-checking that the staged oracle account is owned by the staged program, so a mismatched pair is rejected at stage time rather than bricking approvals after the timelock) and `apply_oracle_change` only lands the swap after the timelock elapses, rotating the oracle account and its owner program together. The staleness window updates without timelock via `update_oracle_params` (price-deviation integrity is the oracle's own concern, not a vault parameter). Each read validates `oracle_account.key() == vault.nav_oracle` and `oracle_account.owner == vault.oracle_program`.
 
 ---
 

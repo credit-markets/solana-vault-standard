@@ -357,6 +357,9 @@ pub struct RequestOracleChange<'info> {
     /// CHECK: Validated as executable below
     pub new_oracle_program_account: UncheckedAccount<'info>,
 
+    /// CHECK: the staged oracle account; key + owner cross-checked below.
+    pub new_oracle_account: UncheckedAccount<'info>,
+
     pub clock: Sysvar<'info, Clock>,
 }
 
@@ -379,6 +382,18 @@ pub fn request_oracle_change_handler(
     require!(
         ctx.accounts.new_oracle_program_account.executable,
         VaultError::InvalidOracleProgram
+    );
+
+    // Stage-time pair check: the new oracle account must be the named one and
+    // owned by the new program, else the pair would brick approvals (which
+    // re-check owner == oracle_program) only after the timelock elapses.
+    require!(
+        ctx.accounts.new_oracle_account.key() == new_oracle,
+        VaultError::InvalidAddress
+    );
+    require!(
+        ctx.accounts.new_oracle_account.owner == &new_oracle_program,
+        VaultError::OracleInvalidProgram
     );
 
     let vault_config = &mut ctx.accounts.vault_config;

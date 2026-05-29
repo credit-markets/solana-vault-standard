@@ -49,7 +49,10 @@ hardening" pass below (noted inline where reversed).
   now-dead `last_seen_nav_price`.
 - The oracle timelock now rotates the oracle account **and** its owner
   program atomically (`request_oracle_change` gains a `new_oracle_program`
-  arg; `VaultConfig` gains `pending_oracle_program`).
+  arg; `VaultConfig` gains `pending_oracle_program`). `request_oracle_change`
+  also cross-checks the (account, program) pair at stage time — the staged
+  oracle account must be owned by the staged program — so a mismatched pair
+  is rejected immediately instead of bricking approvals after the timelock.
 - **Removed the vault-derived (books-vs-oracle) deviation guard.** SVS-11 no
   longer re-derives a price from `total_assets / total_shares` to bound the
   oracle: `total_assets` tracks idle cash (draw_down deploys capital

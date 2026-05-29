@@ -28,10 +28,10 @@ pub struct CreditVault {
     pub vault_id: u64,
     pub total_assets: u64,
     /// V4-P20: Cached share count. Updated atomically with mint/burn CPIs in
-    /// claim_deposit (+) and approve_redeem (-). Used for NAV deviation checks
-    /// in approve_deposit/approve_redeem. Callers with access to shares_mint
-    /// should prefer shares_mint.supply as the canonical source. A reconciliation
-    /// check is enforced in approve_redeem (which has shares_mint in its context).
+    /// claim_deposit (+) and approve_redeem (-). Drives share/asset conversion
+    /// and the reconciliation check in approve_redeem (which has shares_mint in
+    /// its context); callers with access to shares_mint should prefer
+    /// shares_mint.supply as the canonical source.
     pub total_shares: u64,
     pub total_pending_deposits: u64,
     pub minimum_investment: u64,
