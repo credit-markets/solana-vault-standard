@@ -3419,4 +3419,74 @@ describe("svs-11 (Credit Markets Vault)", () => {
       );
     });
   });
+
+  describe("Oracle change timelock (stage-time pair check)", () => {
+    // request_oracle_change cross-checks the staged (oracle account, program)
+    // pair so a mismatch fails at stage time rather than bricking approvals
+    // after the timelock. Negative cases must NOT mutate the pending_* state.
+    it("rejects a staged oracle account not owned by the staged program", async () => {
+      try {
+        await program.methods
+          // mockOracleData is owned by mock-oracle, not nav-oracle.
+          .requestOracleChange(mockOracleData, navOracleProgram.programId)
+          .accountsPartial({
+            authority: payer.publicKey,
+            vault,
+            vaultConfig,
+            newOracleProgramAccount: navOracleProgram.programId,
+            newOracleAccount: mockOracleData,
+            clock: SYSVAR_CLOCK_PUBKEY,
+          })
+          .rpc();
+        expect.fail("should have thrown");
+      } catch (err: any) {
+        expect(err.error.errorCode.code).to.equal("OracleInvalidProgram");
+      }
+
+      const cfg = await program.account.vaultConfig.fetch(vaultConfig);
+      expect(cfg.pendingOracle.toBase58()).to.equal(
+        PublicKey.default.toBase58(),
+      );
+    });
+
+    it("rejects when the staged oracle account key != new_oracle arg", async () => {
+      const stray = Keypair.generate().publicKey;
+      try {
+        await program.methods
+          .requestOracleChange(stray, navOracleProgram.programId)
+          .accountsPartial({
+            authority: payer.publicKey,
+            vault,
+            vaultConfig,
+            newOracleProgramAccount: navOracleProgram.programId,
+            newOracleAccount: mockOracleData, // key != `stray`
+            clock: SYSVAR_CLOCK_PUBKEY,
+          })
+          .rpc();
+        expect.fail("should have thrown");
+      } catch (err: any) {
+        expect(err.error.errorCode.code).to.equal("InvalidAddress");
+      }
+    });
+
+    it("stages a valid (account, program) pair", async () => {
+      await program.methods
+        .requestOracleChange(mockOracleData, oracleProgram.programId)
+        .accountsPartial({
+          authority: payer.publicKey,
+          vault,
+          vaultConfig,
+          newOracleProgramAccount: oracleProgram.programId,
+          newOracleAccount: mockOracleData,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .rpc();
+
+      const cfg = await program.account.vaultConfig.fetch(vaultConfig);
+      expect(cfg.pendingOracle.toBase58()).to.equal(mockOracleData.toBase58());
+      expect(cfg.pendingOracleProgram.toBase58()).to.equal(
+        oracleProgram.programId.toBase58(),
+      );
+    });
+  });
 });
