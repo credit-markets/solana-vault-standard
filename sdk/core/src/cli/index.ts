@@ -66,7 +66,6 @@ import { registerFeesCommands } from "./commands/fees";
 import { registerCapsCommands } from "./commands/caps";
 import { registerAccessCommands } from "./commands/access";
 import { registerEmergencyCommands } from "./commands/emergency";
-import { registerTimelockCommands } from "./commands/timelock";
 import { registerStrategyCommands } from "./commands/strategy";
 import { registerPortfolioCommands } from "./commands/portfolio";
 import { registerAsyncCommands } from "./commands/async";
@@ -76,6 +75,14 @@ import { registerTranchedCommands } from "./commands/tranched";
 
 // SVS-9 Allocator Vault commands
 import { registerSvs9Commands } from "./commands/svs9";
+
+// SVS-11 Credit Vault commands (request/approve/claim flows + set-oracle-source)
+import { registerCreditCommands } from "./commands/credit";
+
+// Supporting program commands
+import { registerComplianceCommands } from "./commands/compliance";
+import { registerNavCommands } from "./commands/nav";
+import { registerDerwaCommands } from "./commands/derwa";
 
 /**
  * Create and configure the CLI program.
@@ -108,7 +115,6 @@ export function createCli(): Command {
   registerCapsCommands(program);
   registerAccessCommands(program);
   registerEmergencyCommands(program);
-  registerTimelockCommands(program);
   registerStrategyCommands(program);
   registerPortfolioCommands(program);
 
@@ -116,8 +122,15 @@ export function createCli(): Command {
   registerSvs9Commands(program);
   // SVS-10 async vault commands
   registerAsyncCommands(program);
+  // SVS-11 Credit Vault commands (incl. set-oracle-source)
+  registerCreditCommands(program);
   // SVS-12 Tranched Vault
   registerTranchedCommands(program);
+
+  // Supporting programs
+  registerComplianceCommands(program);
+  registerNavCommands(program);
+  registerDerwaCommands(program);
 
   return program;
 }
