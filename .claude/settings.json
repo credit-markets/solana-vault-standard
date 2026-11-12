@@ -14,14 +14,13 @@
     }
   },
 
-  "enableAllProjectMcpServers": true,
+  "enableAllProjectMcpServers": false,
 
   "defaultMode": "default",
 
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "csharp-lsp@claude-plugins-official": true
+    "typescript-lsp@claude-plugins-official": true
   },
 
   "includeCoAuthoredBy": false,

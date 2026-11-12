@@ -65,7 +65,6 @@ MCP servers are configured in `.mcp.json`. API keys go in `.env` (never in mcp.j
 - **Context7** — Up-to-date library documentation lookup
 - **Playwright** — Browser automation for dApp testing
 - **context-mode** — Compresses large RPC responses and build logs to save context
-- **memsearch** — Persistent memory across sessions with semantic search
 
 Run `/setup-mcp` to configure API keys and verify connections.
 
