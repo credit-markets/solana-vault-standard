@@ -2,30 +2,26 @@
   "mcpServers": {
     "helius": {
       "command": "npx",
-      "args": ["-y", "helius-mcp@latest"],
+      "args": ["-y", "helius-mcp@3.1.0"],
       "env": {
         "HELIUS_API_KEY": "${HELIUS_API_KEY}"
       }
     },
     "solana-dev": {
       "command": "npx",
-      "args": ["-y", "mcp-remote@latest", "https://mcp.solana.com/mcp"]
+      "args": ["-y", "mcp-remote@0.16.6", "https://mcp.solana.com/mcp"]
     },
     "context7": {
       "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp@latest"]
+      "args": ["-y", "@upstash/context7-mcp@4.7.0"]
     },
     "playwright": {
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest", "--headless"]
+      "args": ["-y", "@playwright/mcp@0.0.85", "--headless"]
     },
     "context-mode": {
       "command": "npx",
-      "args": ["-y", "context-mode@latest"]
-    },
-    "memsearch": {
-      "command": "npx",
-      "args": ["-y", "memsearch-mcp@latest"]
+      "args": ["-y", "context-mode@2.1.10"]
     }
   }
 }

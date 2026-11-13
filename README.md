@@ -1,6 +1,6 @@
 # Solana Vault Standard (SVS)
 
-**solana-vault** is a collection of tokenized vault programs and TypeScript SDK/CLI for building and maintaining yield-bearing vaults on Solana. The SDK provides deposit/withdraw operations, share accounting, preview functions, and modular extensions for fees, caps, access control, timelocks, and multi-asset portfolios.
+**solana-vault** is a collection of tokenized vault programs and TypeScript SDK/CLI for building and maintaining yield-bearing vaults on Solana. The SDK provides deposit/withdraw operations, share accounting, preview functions, and modular extensions for fees, caps, access control, and multi-asset portfolios.
 
 The interface started off following the ERC-4626 specification adapted for Solana's account model. With time, more ERC's and features were also covered such as Centrifuge's ERC-7540, alongside novel onchain enforcements and implementations such as Tranched RWA vaults, streaming vault yield, vaults-of-vaults, and more.
 
@@ -21,6 +21,17 @@ The interface started off following the ERC-4626 specification adapted for Solan
 | **SVS-11** | Credit Markets Vault | Oracle NAV | KYC + Freeze | Async (request→approve→claim) | ✅ Devnet |
 | **SVS-12** | Tranched Vault | Stored balance | None | Manager-driven | ✅ Devnet |
 
+### Supporting Programs
+
+In addition to the SVS-N vault variants, the workspace ships supporting infrastructure programs that any SVS deployment can compose with. These are not vault standards themselves; they sit alongside SVS-1..SVS-12 (and `mock-oracle` / `mock-sas`).
+
+| Program | Purpose |
+|---------|---------|
+| **compliance-hook** | Token-2022 `TransferHook` backend with per-mint compliance modes (`FreelyTransferable` or `Permissioned`) and a sanctions list |
+| **nav-oracle** | Per-pool NAV oracle with signed publisher payloads, sequence monotonicity, gross/net NAV, TER, loss provision, and loan-tape Merkle commitments |
+| **derwa-wrapper** | 1:1 wrap between a closed permissioned mint (cPOOL) and an open Token-2022 mint (dePOOL) with attestation-gated unwrap |
+
+See per-program docs: [compliance-hook](docs/compliance-hook.md), [nav-oracle](docs/nav-oracle.md), [derwa-wrapper](docs/derwa-wrapper.md).
 
 ### Balance Model Comparison
 
@@ -80,6 +91,9 @@ The interface started off following the ERC-4626 specification adapted for Solan
 | SVS-12 | `EPwH58e5V1UXYkkD8JZ4bq7Wr2iRiC9fLj1S6BRRz2R` | Same as devnet |
 | Mock Oracle | `Heezh11y1FJPvrUjKetGsDJTFFNdHqXPz9bFsUiEJxdh` | Same as devnet |
 | Mock SAS | `GTTMWDHTZibyEpqNRr33RnBhgms262U6qHaGrjoHqEXg` | Same as devnet |
+| compliance-hook | `6JKauKWVJqs9duaCqXCMS6UN9KvqHxMjLS5KwJxGqH5P` | Same as devnet |
+| nav-oracle | `7564bvScA3FjQ9w5nCx44EK4JkgitzZ3UstX1e4eKks7` | Same as devnet |
+| derwa-wrapper | `8zf7pTE29kmMHoGJCbKP6QRre9RPEPboPad7X3dGutsH` | Same as devnet |
 
 ## Installation
 
@@ -163,7 +177,7 @@ SVS-1 includes optional on-chain modules for enforcing vault policies at the pro
 | `svs-locks` | Time-locked shares before redemption (max 1 year) |
 | `svs-access` | Whitelist/blacklist with merkle proof verification |
 
-**Module PDAs** are passed via `remaining_accounts`. If not passed, checks are skipped (backward compatible).
+**Module PDAs** are passed via `remaining_accounts`. If not passed, checks are skipped (modules are opt-in).
 
 ```bash
 # Build SVS-1 with modules
@@ -181,7 +195,6 @@ The TypeScript SDK includes modular extensions for common vault patterns:
 | `emergency` | Emergency withdrawal with configurable penalty |
 | `access-control` | Whitelist/blacklist with merkle proof verification |
 | `multi-asset` | Portfolio allocation across multiple vaults |
-| `timelock` | Governance proposal lifecycle management |
 | `strategy` | CPI templates for deploying assets to external protocols |
 
 ## CLI

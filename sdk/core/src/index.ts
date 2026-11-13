@@ -50,13 +50,22 @@ export * from "./tranched-vault-pda";
 // On-chain Module Support (v2)
 export * from "./modules";
 
+// Supporting programs (Token-2022 TransferHook, NAV oracle, deRWA wrapper)
+export * from "./compliance-hook";
+export * from "./compliance-hook-pda";
+export * from "./nav-oracle";
+export * from "./nav-oracle-pda";
+export * from "./derwa-wrapper";
+export * from "./derwa-wrapper-pda";
+export * from "./mock-sas-pda";
+export * from "./attestation";
+
 // SDK Modules (client-side, deprecated for enforcement - use on-chain modules)
 export * from "./fees";
 export * from "./cap";
 export * from "./emergency";
 export * from "./access-control";
 export * from "./multi-asset";
-export * from "./timelock";
 export * from "./strategy";
 
 export * from "./async-vault";
